@@ -111,6 +111,24 @@ pub(crate) fn should_retry_support_extra_filter_dialog(wait: SupportExtraFilterD
 /// kick off the OCR pass.
 pub(crate) const SUPPORT_CLASS_TAB_SETTLE: Duration = Duration::from_millis(600);
 
+/// After leaving the previous screen (quest list, team confirm or a list
+/// refresh) the support page fades its list in over a loading overlay.
+/// Taps that land on the class-tab rail during that window are swallowed,
+/// which used to leave the filter on ALL silently: the scan then ran the
+/// whole mixed list until the next refresh re-tapped the tab. Waiting a
+/// couple of polls before the tap makes the first switch reliable.
+pub(crate) const SUPPORT_SELECT_SETTLE_TICKS: u8 = 3;
+
+/// Length of one settle tick. Long enough for the fade-in to finish, short
+/// enough that a support page only pays ~1.8s extra before the tab tap.
+pub(crate) const SUPPORT_SELECT_SETTLE_TICK: Duration = Duration::from_millis(600);
+
+/// True while the freshly opened support page still needs another settle
+/// poll before the class-tab rail can be tapped.
+pub(crate) fn support_screen_needs_settle(settle_ticks: u8) -> bool {
+    settle_ticks < SUPPORT_SELECT_SETTLE_TICKS
+}
+
 /// Map an Atlas Academy `className` (already lowercased by
 /// `load_servant_metadata`) to the support-select class-filter tab.
 /// Returns `None` for unknown / boss-only class variants so the

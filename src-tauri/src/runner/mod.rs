@@ -157,6 +157,10 @@ pub struct Runner {
     support_refresh_count: u32,
     /// Current class-tab scan, reset after refresh or support selection.
     support_class_search: SupportClassSearchProgress,
+    /// Polls spent waiting for the freshly opened support page to finish its
+    /// fade-in before the class tab is tapped. Reset whenever the page is
+    /// left or a tab action has been performed.
+    support_select_settle_ticks: u8,
     /// True after this run has saved CN's second-level EXTRA class choice.
     /// The game persists that choice, so later refreshes / repeated quests
     /// only need to tap the ordinary EXTRA tab again.
@@ -262,6 +266,7 @@ impl Runner {
             support_scroll_end_progress: SupportScrollEndProgress::default(),
             support_refresh_count: 0,
             support_class_search: SupportClassSearchProgress::default(),
+            support_select_settle_ticks: 0,
             support_extra_class_filter_configured: false,
             support_meta: None,
             support_ce_templates: None,

@@ -43,7 +43,18 @@ impl Runner {
 
         // Apply the current search stage before OCR. Both mode scans the
         // corresponding class first, then the leftmost ALL slot before refresh.
+        // The support page fades in over a loading overlay, so wait for it to
+        // settle first: a tab tap that lands during the fade is swallowed and
+        // leaves the list on ALL until the next refresh retries it.
+        if !self.support_class_search.tab_done
+            && support_screen_needs_settle(self.support_select_settle_ticks)
+        {
+            self.support_select_settle_ticks += 1;
+            thread::sleep(SUPPORT_SELECT_SETTLE_TICK);
+            return Ok(());
+        }
         if !self.support_class_search.tab_done {
+            self.support_select_settle_ticks = 0;
             match self.support_class_search.filter_action(
                 self.server,
                 Some(&meta.class_name),
@@ -515,6 +526,7 @@ impl Runner {
     }
 
     pub(crate) fn release_support_ocr(&mut self) -> AutomationResult<()> {
+        self.support_select_settle_ticks = 0;
         Ok(
             if let Err(error) = self.sidecar().release_ocr().recoverable()? {
                 eprintln!("[mash-cv] release support-search OCR worker failed: {error}");

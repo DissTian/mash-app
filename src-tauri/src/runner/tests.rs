@@ -7707,6 +7707,16 @@ fn support_search_tap(
 }
 
 #[test]
+fn support_screen_settle_requires_the_configured_polls_before_the_class_tab_tap() {
+    // Freshly opened/refreshed support pages fade in over a loading overlay;
+    // taps during that window are swallowed, so the runner waits two polls.
+    for ticks in 0..SUPPORT_SELECT_SETTLE_TICKS {
+        assert!(support_screen_needs_settle(ticks));
+    }
+    assert!(!support_screen_needs_settle(SUPPORT_SELECT_SETTLE_TICKS));
+}
+
+#[test]
 fn support_class_search_single_modes_repeat_the_same_tab_after_refresh() {
     use crate::SupportClassFilterMode;
     for (mode, expected) in [
