@@ -33,7 +33,10 @@ import {
   validateGrandServants as grandServantsAreValid,
 } from "../advanced/grandClassModel";
 import { isAutomationTerminal, type AutomationStatus } from "../../types/automation";
-import type { BattleRunStatus } from "../../types/battleRunStatus";
+import {
+  activeApRecoveryUsage,
+  type BattleRunStatus,
+} from "../../types/battleRunStatus";
 import { buildProjectRunConfig } from "./projectRunConfig";
 import { ApRecoveryPanel } from "./ApRecoveryPanel";
 import {
@@ -152,6 +155,7 @@ export function BattlePage({
   const [draft, setDraft] = useState<BattleProjectDraft | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const draftRef = useRef<BattleProjectDraft | null>(null);
+  const apRecoveryUsage = activeApRecoveryUsage(battleRunStatus);
 
   useEffect(() => {
     const unlisten = listen<AutomationEvent>("automation-status", (event) => {
@@ -481,6 +485,7 @@ export function BattlePage({
         <ApRecoveryPanel
           items={apRecoveryItems}
           limits={apRecoveryLimits}
+          usage={apRecoveryUsage}
           disabled={running || !selectedProject}
           onChangeItems={setApRecoveryItems}
           onChangeLimit={setApRecoveryLimit}

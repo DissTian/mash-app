@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { invoke } from "@tauri-apps/api/core";
 import { renderWithTheme } from "../../../test/renderWithTheme";
 import type { Project } from "../../../types/project";
+import type { BattleRunStatus } from "../../../types/battleRunStatus";
 import { RankUpQuestPage } from "../RankUpQuestPage";
 
 const PROJECT: Project = {
@@ -69,7 +70,7 @@ function mockCommands() {
   });
 }
 
-function renderPage() {
+function renderPage(battleRunStatus: BattleRunStatus | null = null) {
   const callbacks = {
     onProjectSelect: vi.fn(),
     onBack: vi.fn(),
@@ -82,6 +83,7 @@ function renderPage() {
     <RankUpQuestPage
       projects={[PROJECT]}
       activeProjectId={PROJECT.id}
+      battleRunStatus={battleRunStatus}
       {...callbacks}
     />,
   );
@@ -102,6 +104,22 @@ describe("RankUpQuestPage", () => {
 
     await user.click(screen.getByRole("button", { name: "选择可强化任务" }));
     expect(screen.getByRole("button", { name: "开始强化任务" })).toBeEnabled();
+  });
+
+  it("shows how many limited AP recovery uses are left while a run consumes them", () => {
+    mockCommands();
+    renderPage({
+      phase: "running",
+      startedAtMs: 0,
+      endedAtMs: null,
+      lastCompletedAtMs: null,
+      completedRuns: 0,
+      maxRuns: null,
+      apRecoveryUsage: { gold: 1, silver: 0, bronze: 0, copper: 0, rainbow: 0 },
+    });
+
+    expect(screen.getByText("剩 1 次")).toBeInTheDocument();
+    expect(screen.getByLabelText("黄金果实剩余使用次数")).toHaveTextContent("剩 1 次");
   });
 
   it("starts single mode with candidate identity only and ignores project repeat count", async () => {

@@ -21,6 +21,12 @@ import {
 interface ApRecoveryPanelProps {
   items: BattleApRecoveryItem[];
   limits: BattleApRecoveryLimits;
+  /**
+   * Items already consumed by the active run, keyed by recovery item. When
+   * provided, a limited item shows how many uses are left and the badge
+   * decreases with every consumed item.
+   */
+  usage?: Partial<Record<BattleApRecoveryItem, number>> | null;
   disabled: boolean;
   onChangeItems: (items: BattleApRecoveryItem[]) => void;
   onChangeLimit: (item: BattleApRecoveryItem, limit: number | null) => void;
@@ -36,6 +42,7 @@ interface ApRecoveryPanelProps {
 export function ApRecoveryPanel({
   items,
   limits,
+  usage = null,
   disabled,
   onChangeItems,
   onChangeLimit,
@@ -64,6 +71,10 @@ export function ApRecoveryPanel({
         {AP_RECOVERY_OPTIONS.map((option) => {
           const checked = items.includes(option.value);
           const limit = limits[option.value];
+          const remaining =
+            limit != null && usage != null
+              ? Math.max(0, limit - (usage[option.value] ?? 0))
+              : null;
           return (
             <div
               className={`battle-recovery-option ${checked ? "is-selected" : ""} ${
@@ -71,6 +82,14 @@ export function ApRecoveryPanel({
               }`}
               key={option.value}
             >
+              {remaining != null && (
+                <span
+                  className="battle-recovery-remaining"
+                  aria-label={`${option.label}剩余使用次数`}
+                >
+                  剩 {remaining} 次
+                </span>
+              )}
               <CheckboxCards.Item
                 value={option.value}
                 className="battle-recovery-card"

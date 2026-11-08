@@ -308,6 +308,28 @@
   height: 8.5px;
 }
 
+.battle-page .battle-recovery-option {
+  position: relative;
+}
+
+/* Remaining uses of a limited AP-recovery item, shown while a run consumes
+   it so the count visibly ticks down from the configured limit. */
+.battle-page .battle-recovery-remaining {
+  position: absolute;
+  top: 7.5px;
+  right: 7.5px;
+  z-index: 1;
+  padding: 1.5px 6px;
+  border-radius: 999px;
+  background: var(--blue-a4);
+  color: var(--blue-11);
+  font-size: 10px;
+  line-height: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .battle-page .battle-recovery-limit {
   flex: none;
   gap: 10.5px;

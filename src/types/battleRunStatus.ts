@@ -39,6 +39,25 @@ export const EMPTY_AP_RECOVERY_USAGE: BattleRunApRecoveryUsage = {
   rainbow: 0,
 };
 
+/**
+ * Usage counted for the currently active run. Only live phases return the
+ * usage map, so the AP-recovery panel can show "remaining" counters while a
+ * run is consuming items and hide them again once the run ends.
+ */
+export function activeApRecoveryUsage(
+  status: BattleRunStatus | null | undefined,
+): BattleRunApRecoveryUsage | null {
+  if (status == null) return null;
+  if (
+    status.phase !== "starting" &&
+    status.phase !== "running" &&
+    status.phase !== "paused"
+  ) {
+    return null;
+  }
+  return status.apRecoveryUsage;
+}
+
 export function formatBattleRunDuration(
   durationMs: number,
   alwaysShowSeconds = true,

@@ -508,6 +508,26 @@ describe("BattlePage", () => {
     expect(screen.getByRole("button", { name: "停止任务" })).toBeEnabled();
   });
 
+  it("shows remaining limited AP recovery uses while the run consumes them", async () => {
+    mockProjectCommands();
+    renderBattlePage(
+      { ...PROJECT, apRecoveryItems: ["gold"], apRecoveryLimits: { gold: 2 } },
+      [SABER, BERSERKER, CASTER],
+      {
+        phase: "running",
+        startedAtMs: 0,
+        endedAtMs: null,
+        lastCompletedAtMs: null,
+        completedRuns: 0,
+        maxRuns: null,
+        apRecoveryUsage: { gold: 1, silver: 0, bronze: 0, copper: 0, rainbow: 0 },
+      },
+    );
+
+    expect(await screen.findByText("剩 1 次")).toBeInTheDocument();
+    expect(screen.getByLabelText("黄金果实剩余使用次数")).toHaveTextContent("剩 1 次");
+  });
+
   it("removes the standalone advanced settings entry", () => {
     mockProjectCommands();
     renderBattlePage(PROJECT);

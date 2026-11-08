@@ -1128,6 +1128,7 @@ function App({
               onAutomationStartFailed={handleBattleAutomationStartFailed}
               onLogEntry={appendOperationLog}
               onUpdateProject={handleUpdateProject}
+              battleRunStatus={battleRunStatus}
             />
           ) : view === "enhancement" && featureToggles.servantEnhancement ? (
             <EnhancementPage

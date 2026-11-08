@@ -12,6 +12,10 @@ import type {
   RankUpQuestRow,
 } from "../../types/rankUpQuest";
 import { isAutomationTerminal, type AutomationStatus } from "../../types/automation";
+import {
+  activeApRecoveryUsage,
+  type BattleRunStatus,
+} from "../../types/battleRunStatus";
 import { ApRecoveryPanel } from "../battle/ApRecoveryPanel";
 import {
   AP_RECOVERY_OPTIONS,
@@ -36,6 +40,7 @@ interface RankUpQuestPageProps {
   onAutomationStartFailed?: () => void;
   onLogEntry?: (message: string) => void;
   onUpdateProject: (project: Project) => Promise<void>;
+  battleRunStatus?: BattleRunStatus | null;
 }
 
 function rowStyle(row: RankUpQuestRow) {
@@ -56,6 +61,7 @@ export function RankUpQuestPage({
   onAutomationStartFailed,
   onLogEntry,
   onUpdateProject,
+  battleRunStatus = null,
 }: RankUpQuestPageProps) {
   const [mode, setMode] = useState<RankUpQuestMode>("single");
   const [server, setServer] = useState<Server | null>(null);
@@ -79,6 +85,7 @@ export function RankUpQuestPage({
     () => projectApRecoveryLimits(selectedProject),
     [selectedProject],
   );
+  const apRecoveryUsage = activeApRecoveryUsage(battleRunStatus);
 
   const setApRecoveryItems = useCallback(
     (items: BattleApRecoveryItem[]) => {
@@ -248,6 +255,7 @@ export function RankUpQuestPage({
         <ApRecoveryPanel
           items={apRecoveryItems}
           limits={apRecoveryLimits}
+          usage={apRecoveryUsage}
           disabled={running || selectedProject == null}
           onChangeItems={setApRecoveryItems}
           onChangeLimit={setApRecoveryLimit}
