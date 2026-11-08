@@ -45,6 +45,54 @@ pub(crate) enum RankUpQuestPhase {
     AwaitingReturn,
 }
 
+/// What a freshly detected screen means for the running rank-up workflow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RankUpScreenObservation {
+    /// Stay in the current phase and keep polling.
+    Continue,
+    /// The quest tap reached the support selection page.
+    Departed,
+    /// Insufficient AP opened the shared AP recovery page mid-departure.
+    ApRecovery,
+    /// The AP recovery page closed back to the quest list, so the list must be
+    /// rescanned and the quest tapped again.
+    BackToList,
+    /// The screen does not belong to the rank-up workflow.
+    Unexpected,
+}
+
+/// Classify a screen while the rank-up workflow owns the main loop.
+///
+/// The workflow reuses the normal battle loop, so transient screens may appear
+/// between the quest tap and the support page. Insufficient AP is one of them:
+/// tapping the quest opens the shared AP recovery page, which must be handled by
+/// the regular AP recovery flow instead of failing the run.
+pub(crate) fn classify_rank_up_screen_observation(
+    phase: RankUpQuestPhase,
+    screen: Screen,
+    ap_recovery_pending: bool,
+) -> RankUpScreenObservation {
+    match phase {
+        RankUpQuestPhase::NeedList => {
+            if screen == Screen::RankUpQuest {
+                RankUpScreenObservation::Continue
+            } else {
+                RankUpScreenObservation::Unexpected
+            }
+        }
+        RankUpQuestPhase::AwaitingDeparture => match screen {
+            Screen::RankUpQuest if ap_recovery_pending => RankUpScreenObservation::BackToList,
+            Screen::RankUpQuest => RankUpScreenObservation::Continue,
+            Screen::APRecovery => RankUpScreenObservation::ApRecovery,
+            Screen::SupportSelect => RankUpScreenObservation::Departed,
+            _ => RankUpScreenObservation::Unexpected,
+        },
+        RankUpQuestPhase::InQuest | RankUpQuestPhase::AwaitingReturn => {
+            RankUpScreenObservation::Continue
+        }
+    }
+}
+
 pub(crate) struct RankUpQuestRuntime {
     pub(crate) config: RankUpQuestWorkflowConfig,
     pub(crate) phase: RankUpQuestPhase,
@@ -55,6 +103,9 @@ pub(crate) struct RankUpQuestRuntime {
     top_swipes: u8,
     forward_swipes: u8,
     clicked_in_pass: bool,
+    /// Set when the AP recovery page opened from the quest tap; used to detect
+    /// the return to the list once the item was consumed.
+    ap_recovery_pending: bool,
 }
 
 impl RankUpQuestRuntime {
@@ -70,6 +121,7 @@ impl RankUpQuestRuntime {
             top_swipes: 0,
             forward_swipes: 0,
             clicked_in_pass: false,
+            ap_recovery_pending: false,
         }
     }
 
@@ -103,34 +155,62 @@ impl Runner {
     }
 
     pub(crate) fn observe_rank_up_quest_screen(&mut self, screen: Screen) -> bool {
-        let Some(runtime) = self.rank_up_quest.as_mut() else {
-            return true;
-        };
-        if screen == Screen::RankUpQuest || screen == Screen::Unknown {
-            return true;
-        }
-        match runtime.phase {
-            RankUpQuestPhase::AwaitingDeparture => {
-                if screen == Screen::SupportSelect {
+        let (observation, phase) = {
+            let Some(runtime) = self.rank_up_quest.as_mut() else {
+                return true;
+            };
+            if screen == Screen::Unknown {
+                return true;
+            }
+            let observation = classify_rank_up_screen_observation(
+                runtime.phase,
+                screen,
+                runtime.ap_recovery_pending,
+            );
+            let phase = runtime.phase;
+            match observation {
+                RankUpScreenObservation::Continue | RankUpScreenObservation::Unexpected => {}
+                RankUpScreenObservation::Departed => {
                     runtime.phase = RankUpQuestPhase::InQuest;
                     runtime.reset_stability();
-                    true
+                    runtime.ap_recovery_pending = false;
+                }
+                RankUpScreenObservation::ApRecovery => {
+                    runtime.ap_recovery_pending = true;
+                }
+                RankUpScreenObservation::BackToList => {
+                    runtime.phase = RankUpQuestPhase::NeedList;
+                    runtime.reset_stability();
+                    runtime.ap_recovery_pending = false;
+                }
+            }
+            (observation, phase)
+        };
+
+        match observation {
+            RankUpScreenObservation::Continue | RankUpScreenObservation::Departed => true,
+            RankUpScreenObservation::ApRecovery => {
+                self.emit_debug("RankUpQuest", "行动力不足，等待恢复行动力");
+                true
+            }
+            RankUpScreenObservation::BackToList => {
+                self.emit("RankUpQuest", "行动力已恢复，重新选择强化任务");
+                true
+            }
+            RankUpScreenObservation::Unexpected => {
+                if phase == RankUpQuestPhase::NeedList {
+                    self.fail_action(
+                        "RankUpQuest",
+                        "启动强化任务",
+                        "当前不是强化任务页面，请先在游戏中打开强化任务".into(),
+                    );
                 } else {
                     self.fail_action(
                         "RankUpQuest",
                         "进入强化任务",
                         format!("点击后进入了非预期页面: {screen}"),
                     );
-                    false
                 }
-            }
-            RankUpQuestPhase::InQuest | RankUpQuestPhase::AwaitingReturn => true,
-            RankUpQuestPhase::NeedList => {
-                self.fail_action(
-                    "RankUpQuest",
-                    "启动强化任务",
-                    "当前不是强化任务页面，请先在游戏中打开强化任务".into(),
-                );
                 false
             }
         }
@@ -454,5 +534,79 @@ mod tests {
         ));
         assert!(!rank_up_list_is_return(RankUpQuestPhase::NeedList));
         assert!(!rank_up_list_is_return(RankUpQuestPhase::AwaitingDeparture));
+    }
+
+    #[test]
+    fn ap_recovery_between_tap_and_support_returns_to_the_list() {
+        assert_eq!(
+            classify_rank_up_screen_observation(
+                RankUpQuestPhase::AwaitingDeparture,
+                Screen::APRecovery,
+                false,
+            ),
+            RankUpScreenObservation::ApRecovery
+        );
+        // Once an item is consumed the game returns to the quest list instead
+        // of the support page, so the row has to be tapped again.
+        assert_eq!(
+            classify_rank_up_screen_observation(
+                RankUpQuestPhase::AwaitingDeparture,
+                Screen::RankUpQuest,
+                true,
+            ),
+            RankUpScreenObservation::BackToList
+        );
+        assert_eq!(
+            classify_rank_up_screen_observation(
+                RankUpQuestPhase::AwaitingDeparture,
+                Screen::RankUpQuest,
+                false,
+            ),
+            RankUpScreenObservation::Continue
+        );
+    }
+
+    #[test]
+    fn departure_observations_keep_failing_on_unrelated_screens() {
+        assert_eq!(
+            classify_rank_up_screen_observation(
+                RankUpQuestPhase::AwaitingDeparture,
+                Screen::SupportSelect,
+                true,
+            ),
+            RankUpScreenObservation::Departed
+        );
+        assert_eq!(
+            classify_rank_up_screen_observation(
+                RankUpQuestPhase::AwaitingDeparture,
+                Screen::TeamConfirm,
+                false,
+            ),
+            RankUpScreenObservation::Unexpected
+        );
+        assert_eq!(
+            classify_rank_up_screen_observation(
+                RankUpQuestPhase::NeedList,
+                Screen::RankUpQuest,
+                false,
+            ),
+            RankUpScreenObservation::Continue
+        );
+        assert_eq!(
+            classify_rank_up_screen_observation(
+                RankUpQuestPhase::NeedList,
+                Screen::APRecovery,
+                false,
+            ),
+            RankUpScreenObservation::Unexpected
+        );
+        assert_eq!(
+            classify_rank_up_screen_observation(
+                RankUpQuestPhase::InQuest,
+                Screen::APRecovery,
+                false,
+            ),
+            RankUpScreenObservation::Continue
+        );
     }
 }

@@ -4,7 +4,7 @@ import { ChevronLeftIcon, ReloadIcon } from "@radix-ui/react-icons";
 import { OptionCardRadioGroup } from "../../components/common/OptionCardRadioGroup";
 import { SectionHeading } from "../../components/common/SectionHeading";
 import { convertFileSrc, invoke, listen } from "../../tauri";
-import type { Project } from "../../types/project";
+import type { BattleApRecoveryItem, Project } from "../../types/project";
 import type { Server } from "../../types/server";
 import type {
   RankUpQuestCaptureResult,
@@ -12,6 +12,13 @@ import type {
   RankUpQuestRow,
 } from "../../types/rankUpQuest";
 import { isAutomationTerminal, type AutomationStatus } from "../../types/automation";
+import { ApRecoveryPanel } from "../battle/ApRecoveryPanel";
+import {
+  AP_RECOVERY_OPTIONS,
+  normalizeApRecoveryLimit,
+  orderedApRecoveryItems,
+  projectApRecoveryLimits,
+} from "../battle/apRecoveryModel";
 import { buildProjectRunConfig } from "../battle/projectRunConfig";
 
 interface AutomationEvent {
@@ -28,6 +35,7 @@ interface RankUpQuestPageProps {
   onAutomationStart?: () => void;
   onAutomationStartFailed?: () => void;
   onLogEntry?: (message: string) => void;
+  onUpdateProject: (project: Project) => Promise<void>;
 }
 
 function rowStyle(row: RankUpQuestRow) {
@@ -47,6 +55,7 @@ export function RankUpQuestPage({
   onAutomationStart,
   onAutomationStartFailed,
   onLogEntry,
+  onUpdateProject,
 }: RankUpQuestPageProps) {
   const [mode, setMode] = useState<RankUpQuestMode>("single");
   const [server, setServer] = useState<Server | null>(null);
@@ -60,6 +69,44 @@ export function RankUpQuestPage({
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null,
     [activeProjectId, projects],
+  );
+
+  const apRecoveryItems = useMemo(
+    () => orderedApRecoveryItems(selectedProject),
+    [selectedProject],
+  );
+  const apRecoveryLimits = useMemo(
+    () => projectApRecoveryLimits(selectedProject),
+    [selectedProject],
+  );
+
+  const setApRecoveryItems = useCallback(
+    (items: BattleApRecoveryItem[]) => {
+      if (!selectedProject || running) return;
+      void onUpdateProject({
+        ...selectedProject,
+        apRecoveryItems: AP_RECOVERY_OPTIONS.map((option) => option.value).filter((value) =>
+          items.includes(value),
+        ),
+        apRecoveryLimits: projectApRecoveryLimits(selectedProject),
+      });
+    },
+    [onUpdateProject, running, selectedProject],
+  );
+
+  const setApRecoveryLimit = useCallback(
+    (item: BattleApRecoveryItem, limit: number | null) => {
+      if (!selectedProject || running) return;
+      void onUpdateProject({
+        ...selectedProject,
+        apRecoveryItems: orderedApRecoveryItems(selectedProject),
+        apRecoveryLimits: {
+          ...projectApRecoveryLimits(selectedProject),
+          [item]: normalizeApRecoveryLimit(limit),
+        },
+      });
+    },
+    [onUpdateProject, running, selectedProject],
   );
 
   useEffect(() => {
@@ -194,9 +241,17 @@ export function RankUpQuestPage({
             </Select.Content>
           </Select.Root>
           <Text size="1" color="gray" className="rank-up-quest-help">
-            沿用该队伍的助战条件、战斗指令和行动力恢复设置；忽略普通重复次数。
+            沿用该队伍的助战条件与战斗指令；行动力恢复可在下方调整，忽略普通重复次数。
           </Text>
         </Box>
+
+        <ApRecoveryPanel
+          items={apRecoveryItems}
+          limits={apRecoveryLimits}
+          disabled={running || selectedProject == null}
+          onChangeItems={setApRecoveryItems}
+          onChangeLimit={setApRecoveryLimit}
+        />
 
         {mode === "single" && (
           <Box className="battle-panel">

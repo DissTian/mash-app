@@ -76,6 +76,7 @@ function renderPage() {
     onAutomationStart: vi.fn(),
     onAutomationStartFailed: vi.fn(),
     onLogEntry: vi.fn(),
+    onUpdateProject: vi.fn(async () => {}),
   };
   renderWithTheme(
     <RankUpQuestPage
@@ -135,6 +136,22 @@ describe("RankUpQuestPage", () => {
     expect(call?.[1]).not.toHaveProperty("workflow.region");
     expect(screen.getByRole("button", { name: "停止" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "返回" })).toBeDisabled();
+  });
+
+  it("edits the team's AP recovery settings from the rank-up page", async () => {
+    mockCommands();
+    const user = userEvent.setup();
+    const { onUpdateProject } = renderPage();
+
+    await user.click(await screen.findByRole("checkbox", { name: /白银果实/ }));
+
+    expect(onUpdateProject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "team-1",
+        apRecoveryItems: ["gold", "silver"],
+        apRecoveryLimits: expect.objectContaining({ gold: 2, silver: null }),
+      }),
+    );
   });
 
   it("allows all mode to start without capturing or selecting a row", async () => {
