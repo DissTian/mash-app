@@ -157,6 +157,23 @@ def test_find_rank_up_quest_rows_detects_bright_rows_at_supported_sizes(size):
 
 
 @pytest.mark.parametrize("size", ((2560, 1440), (1920, 1080)))
+def test_find_rank_up_quest_rows_matches_the_scaled_header_label(size):
+    """2026-11 CN builds draw the row header ~0.85x smaller than the reference."""
+    from mash_cv import cv as cv_module
+
+    _load_rank_up_quest_assets()
+    image = _rank_up_quest_fixture("scaled-header-cn.png")
+    if (image.shape[1], image.shape[0]) != size:
+        image = cv2.resize(image, size, interpolation=cv2.INTER_AREA)
+
+    result = cv_module._find_rank_up_quest_rows(image)
+
+    assert len(result["rows"]) == 3
+    assert all(row["rankUpAnchor"] is not None for row in result["rows"])
+    assert all(row["actionable"] for row in result["rows"])
+
+
+@pytest.mark.parametrize("size", ((2560, 1440), (1920, 1080)))
 def test_find_rank_up_quest_rows_keeps_dark_rows_but_disables_them(size):
     from mash_cv import cv as cv_module
 
@@ -183,7 +200,7 @@ def test_find_rank_up_quest_rows_does_not_pair_anchors_from_other_rows(monkeypat
         {"x": 0.62, "y": 0.40, "w": 0.04, "h": 0.03, "score": 0.9},
     ]
 
-    def fake_matches(_image, key, _region, _threshold):
+    def fake_matches(_image, key, _region, _threshold, **_kwargs):
         if key == cv_module.RANK_UP_QUEST_ROW_TEMPLATE:
             return rank_anchors
         return cost_anchors
@@ -206,7 +223,7 @@ def test_find_rank_up_quest_rows_drops_top_and_bottom_clipped_rows(monkeypatch):
         {"x": 0.62, "y": 0.90, "w": 0.04, "h": 0.03, "score": 0.9},
     ]
 
-    def fake_matches(_image, key, _region, _threshold):
+    def fake_matches(_image, key, _region, _threshold, **_kwargs):
         return [] if key == cv_module.RANK_UP_QUEST_ROW_TEMPLATE else cost_anchors
 
     monkeypatch.setattr(cv_module, "_find_all_template_matches", fake_matches)

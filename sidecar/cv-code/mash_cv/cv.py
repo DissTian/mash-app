@@ -193,6 +193,10 @@ RANK_UP_QUEST_VISIBLE_TOP = 0.135
 RANK_UP_QUEST_VISIBLE_BOTTOM = 0.965
 RANK_UP_QUEST_ACTIONABLE_LUMA = 92.0
 RANK_UP_QUEST_ACTIONABLE_VALUE = 105.0
+# The row header label is rendered with the game's own font and has drifted in
+# size between client builds (roughly 0.85x of the reference capture in the
+# 2026-11 CN build). Try a few scales so the anchor keeps matching.
+RANK_UP_QUEST_ROW_ANCHOR_SCALES = (1.0, 0.95, 0.9, 0.85, 0.8, 0.75)
 
 # The in-battle Order Change screen draws a bright SELECT marker at these
 # server-independent detection centers in the 2560x1440 reference frame.
@@ -1908,10 +1912,19 @@ def _find_all_template_matches(
     template_key: str,
     region: dict,
     threshold: float,
+    template_scale: float = 1.0,
 ) -> list[dict]:
     """Return vertically distinct matches for one static UI label."""
     tmpl = _get_template(template_key)
     tmpl = _scale_static_template_for_image(tmpl, img, template_key)
+    if abs(template_scale - 1.0) > 1e-6:
+        tmpl = cv2.resize(
+            tmpl,
+            None,
+            fx=template_scale,
+            fy=template_scale,
+            interpolation=cv2.INTER_AREA if template_scale < 1.0 else cv2.INTER_CUBIC,
+        )
     h, w = img.shape[:2]
     rx = max(0, int(round(float(region["x"]) * w)))
     ry = max(0, int(round(float(region["y"]) * h)))
@@ -1972,13 +1985,37 @@ def _rank_up_quest_row_color_stats(img: np.ndarray, row: dict) -> tuple[float, f
     return float(gray.mean()), float(hsv[:, :, 1].mean()), float(hsv[:, :, 2].mean())
 
 
+def _find_rank_up_quest_row_anchors(img: np.ndarray) -> list[dict]:
+    """Match the "强化关卡" header label across the client's current text scale."""
+    candidates: list[dict] = []
+    for scale in RANK_UP_QUEST_ROW_ANCHOR_SCALES:
+        candidates.extend(
+            _find_all_template_matches(
+                img,
+                RANK_UP_QUEST_ROW_TEMPLATE,
+                RANK_UP_QUEST_LIST_REGION,
+                RANK_UP_QUEST_ANCHOR_THRESHOLD,
+                template_scale=scale,
+            )
+        )
+    anchors: list[dict] = []
+    for candidate in sorted(candidates, key=lambda match: match["score"], reverse=True):
+        cx = candidate["x"] + candidate["w"] / 2.0
+        cy = candidate["y"] + candidate["h"] / 2.0
+        duplicate = False
+        for kept in anchors:
+            kx = kept["x"] + kept["w"] / 2.0
+            ky = kept["y"] + kept["h"] / 2.0
+            if abs(cx - kx) < 0.02 and abs(cy - ky) < 0.02:
+                duplicate = True
+                break
+        if not duplicate:
+            anchors.append(candidate)
+    return sorted(anchors, key=lambda match: (match["y"], match["x"]))
+
+
 def _find_rank_up_quest_rows(img: np.ndarray) -> dict:
-    rank_anchors = _find_all_template_matches(
-        img,
-        RANK_UP_QUEST_ROW_TEMPLATE,
-        RANK_UP_QUEST_LIST_REGION,
-        RANK_UP_QUEST_ANCHOR_THRESHOLD,
-    )
+    rank_anchors = _find_rank_up_quest_row_anchors(img)
     cost_anchors = _find_all_template_matches(
         img,
         RANK_UP_QUEST_COST_TEMPLATE,
