@@ -691,6 +691,19 @@ pub struct OcrRegionResult {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct EnhancementCurrentLevelResult {
+    #[serde(default)]
+    pub found: bool,
+    #[serde(default)]
+    pub current: Option<u32>,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub fail_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LevelDigitsResult {
     #[serde(default)]
     pub found: bool,

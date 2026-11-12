@@ -228,12 +228,6 @@ function App({
     }
   }, [startupReady]);
 
-  const handleAutomationStart = useCallback(() => {
-    setOperationLogs([]);
-    setBattleRunStatusOpen(false);
-    setOperationLogOpen(true);
-  }, []);
-
   const handleBattleAutomationStart = useCallback(
     (maxRuns: number | null) => {
       const startedAtMs = Date.now();
@@ -433,6 +427,13 @@ function App({
         appendOperationLog(event.payload.message, event.payload.level ?? "info");
       }
     );
+    const unlistenServantEnhancement = listen<AutomationEvent>(
+      "servant-enhancement-automation-status",
+      (event) => {
+        if (!isCurrentListenerGeneration()) return;
+        appendOperationLog(event.payload.message, event.payload.level ?? "info");
+      }
+    );
     const unlistenCraftEssenceEnhancement = listen<AutomationEvent>(
       "craft-essence-enhancement-automation-status",
       (event) => {
@@ -465,6 +466,7 @@ function App({
       unlistenBattle.then((fn) => fn());
       unlistenBattleProgress.then((fn) => fn());
       unlistenEnhancement.then((fn) => fn());
+      unlistenServantEnhancement.then((fn) => fn());
       unlistenCraftEssenceEnhancement.then((fn) => fn());
       unlistenFriendPointSummon.then((fn) => fn());
       unlistenOperationDebug.then((fn) => fn());
@@ -985,6 +987,11 @@ function App({
     setView("rankUpQuest");
   }, []);
 
+  const handleOpenServantEnhancement = useCallback(() => {
+    if (!featureToggles.servantEnhancement) return;
+    setView("enhancement");
+  }, []);
+
   const handleOpenSettings = useCallback(() => {
     if (isNavigationLocked()) return;
     setSettingsSection("basic");
@@ -1083,11 +1090,13 @@ function App({
               showSummon={featureToggles.friendPointSummon}
               showEnhancement={featureToggles.craftEssenceEnhancement}
               showRankUpQuest={featureToggles.rankUpQuest}
+              showServantEnhancement={featureToggles.servantEnhancement}
               onSelectFigure={handleSelectHomeFigure}
               onOpenTeam={handleBackToConfig}
               onOpenSummon={handleOpenFriendPointSummon}
               onOpenCraftEssenceEnhancement={handleOpenCraftEssenceEnhancement}
               onOpenRankUpQuest={handleOpenRankUpQuest}
+              onOpenServantEnhancement={handleOpenServantEnhancement}
             />
           ) : view === "battle" ? (
             <BattlePage
@@ -1133,8 +1142,8 @@ function App({
           ) : view === "enhancement" && featureToggles.servantEnhancement ? (
             <EnhancementPage
               servants={servants}
-              onBack={handleBackToConfig}
-              onAutomationStart={handleAutomationStart}
+              onBack={handleOpenHome}
+              onAutomationStart={handleStandaloneAutomationStart}
               onLogEntry={appendOperationLog}
             />
           ) : view === "craftEssenceEnhancement" &&

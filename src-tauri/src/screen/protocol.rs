@@ -32,6 +32,7 @@ pub(super) enum SidecarCommand {
     ReadCraftEssenceGrid,
     ReadCraftEssenceMainTarget,
     ReadLevelDigits,
+    ReadEnhancementCurrentLevel,
     ReadRegionLuma,
     ReleaseOcr,
     SetDigitRecognitionMode,

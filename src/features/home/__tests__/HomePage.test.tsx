@@ -27,11 +27,13 @@ function renderHome(overrides: Partial<React.ComponentProps<typeof HomePage>> = 
       showSummon
       showEnhancement
       showRankUpQuest
+      showServantEnhancement
       onSelectFigure={onSelectFigure}
       onOpenTeam={vi.fn()}
       onOpenSummon={vi.fn()}
       onOpenCraftEssenceEnhancement={vi.fn()}
       onOpenRankUpQuest={vi.fn()}
+      onOpenServantEnhancement={vi.fn()}
       {...overrides}
     />,
   );
@@ -44,12 +46,21 @@ describe("HomePage", () => {
     const onOpenSummon = vi.fn();
     const onOpenCraftEssenceEnhancement = vi.fn();
     const onOpenRankUpQuest = vi.fn();
-    renderHome({ onOpenTeam, onOpenSummon, onOpenCraftEssenceEnhancement, onOpenRankUpQuest });
+    const onOpenServantEnhancement = vi.fn();
+    renderHome({
+      onOpenTeam,
+      onOpenSummon,
+      onOpenCraftEssenceEnhancement,
+      onOpenRankUpQuest,
+      onOpenServantEnhancement,
+    });
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "召唤" }));
     expect(onOpenSummon).toHaveBeenCalledOnce();
     await user.click(screen.getByRole("button", { name: "强化" }));
     expect(onOpenCraftEssenceEnhancement).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "从者强化" }));
+    expect(onOpenServantEnhancement).toHaveBeenCalledOnce();
     await user.click(screen.getByRole("button", { name: "战斗" }));
     await user.click(screen.getByRole("button", { name: "编队/开始" }));
     expect(onOpenTeam).toHaveBeenCalledOnce();
@@ -58,9 +69,15 @@ describe("HomePage", () => {
   });
 
   it("keeps disabled feature entries hidden in both menus", async () => {
-    renderHome({ showSummon: false, showEnhancement: false, showRankUpQuest: false });
+    renderHome({
+      showSummon: false,
+      showEnhancement: false,
+      showRankUpQuest: false,
+      showServantEnhancement: false,
+    });
     expect(screen.queryByRole("button", { name: "召唤" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "强化" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "从者强化" })).not.toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole("button", { name: "战斗" }));
     expect(screen.getByRole("button", { name: "编队/开始" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "强化任务" })).not.toBeInTheDocument();

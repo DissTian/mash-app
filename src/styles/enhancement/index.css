@@ -1,0 +1,121 @@
+.servant-enhancement-page .battle-body {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.servant-enhancement-header {
+  flex-shrink: 0;
+  padding-bottom: 4px;
+}
+
+.servant-enhancement-warning {
+  padding: 10px 12px;
+  border: 1px solid var(--amber-7);
+  border-radius: var(--radius-2);
+  background: var(--amber-3);
+  color: var(--amber-11);
+}
+
+.servant-enhancement-panel,
+.servant-enhancement-completed {
+  padding: 12px;
+  border: 1px solid var(--gray-6);
+  border-radius: 12px;
+  background: var(--gray-1);
+}
+
+.servant-enhancement-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 96px 58px 132px 32px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--gray-5);
+  border-radius: 10px;
+  background: var(--gray-2);
+}
+
+.servant-enhancement-row.running {
+  border-color: var(--blue-8);
+  background: var(--blue-2);
+}
+
+.servant-enhancement-face {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--gray-4);
+}
+
+.servant-enhancement-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.servant-enhancement-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.servant-enhancement-level {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.servant-enhancement-level .rt-TextFieldRoot {
+  width: 84px;
+}
+
+.servant-enhancement-toggle {
+  align-items: flex-start;
+}
+
+.servant-enhancement-face-select {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.servant-enhancement-face-select .rt-SelectTrigger {
+  width: 128px;
+}
+
+.servant-enhancement-face-option {
+  width: 20px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.servant-enhancement-controls {
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.servant-enhancement-page .battle-log {
+  height: 180px;
+}
+
+@media (max-width: 900px) {
+  .servant-enhancement-row {
+    grid-template-columns: 44px minmax(0, 1fr) 88px;
+  }
+
+  .servant-enhancement-toggle,
+  .servant-enhancement-face-select {
+    grid-column: span 1;
+  }
+
+  .servant-enhancement-face {
+    width: 44px;
+    height: 44px;
+  }
+}

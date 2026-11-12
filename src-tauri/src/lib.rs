@@ -15,6 +15,7 @@ mod platform;
 mod recognition_diagnostics;
 mod runner;
 mod screen;
+mod servant_enhancement;
 mod server;
 mod storage;
 mod touch;
@@ -35,6 +36,7 @@ use device_operation::DeviceOperationCoordinator;
 use enhancement_runner::EnhancementRunnerHandle;
 use friend_point_summon_runner::FriendPointSummonRunnerHandle;
 use runner::RunnerHandle;
+use servant_enhancement::{ServantEnhancementQueueStore, ServantEnhancementRunnerHandle};
 
 pub use models::*;
 pub use server::{
@@ -94,6 +96,8 @@ pub fn run() {
             app.manage(Mutex::new(app_ui_settings));
             app.manage(Mutex::new(RunnerHandle::new_idle()));
             app.manage(Mutex::new(EnhancementRunnerHandle::new_idle()));
+            app.manage(Mutex::new(ServantEnhancementQueueStore::load(app.handle())));
+            app.manage(Mutex::new(ServantEnhancementRunnerHandle::new_idle()));
             app.manage(Mutex::new(CraftEssenceEnhancementRunnerHandle::new_idle()));
             app.manage(Mutex::new(FriendPointSummonRunnerHandle::new_idle()));
             app.manage(DeviceOperationCoordinator::default());
@@ -153,6 +157,7 @@ pub fn run() {
             commands::catalog::get_attack_card_icon_paths,
             commands::catalog::get_template_asset_path,
             commands::catalog::list_servant_portraits,
+            commands::catalog::list_servant_faces,
             commands::catalog::save_servant_portrait_selection,
             commands::projects::save_battle_scenes,
             commands::projects::load_battle_scenes,
@@ -259,6 +264,11 @@ pub fn run() {
             commands::automation::start_enhancement_automation,
             commands::automation::stop_enhancement_automation,
             commands::automation::get_enhancement_automation_status,
+            commands::automation::get_servant_enhancement_queue,
+            commands::automation::save_servant_enhancement_queue,
+            commands::automation::start_servant_enhancement_automation,
+            commands::automation::stop_servant_enhancement_automation,
+            commands::automation::get_servant_enhancement_automation_status,
             commands::automation::start_craft_essence_enhancement_automation,
             commands::automation::stop_craft_essence_enhancement_automation,
             commands::automation::get_craft_essence_enhancement_automation_status,

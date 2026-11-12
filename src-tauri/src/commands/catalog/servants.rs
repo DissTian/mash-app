@@ -57,6 +57,52 @@ pub(crate) struct ServantInfo {
     pub(crate) noble_phantasm_card: Option<String>,
 }
 
+pub(crate) fn load_servant_enhancement_target(
+    app: &tauri::AppHandle,
+    entry_id: &str,
+    variant_key: &str,
+    target_level: u32,
+    two_exp: bool,
+    face_key: Option<&str>,
+) -> Result<crate::servant_enhancement::ServantEnhancementTarget, String> {
+    let servants = servants_data()?;
+    let servant = servants
+        .iter()
+        .find(|s| s.variant_key == variant_key)
+        .ok_or_else(|| format!("未找到目标从者 variantKey: {variant_key}"))?;
+    let root = resolve_servant_assets_dir(app)
+        .ok_or_else(|| "未找到从者资源目录，无法进行头像匹配".to_string())?;
+    let servant_dir = root.join(servant.id.to_string());
+    let mut face_template_paths: Vec<(String, std::path::PathBuf)> = pick_faces_desc_in(&servant_dir)
+        .into_iter()
+        .filter_map(|path| {
+            let key = path.file_stem()?.to_str()?.to_string();
+            Some((key, path))
+        })
+        .collect();
+    if let Some(face_key) = face_key.filter(|value| !value.is_empty()) {
+        face_template_paths.retain(|(key, _)| key == face_key);
+    }
+    if face_template_paths.is_empty() {
+        return Err(format!(
+            "缺少从者头像模板资源，无法在无名称列表中自动选择: {} ({})",
+            servant.name_cn, servant.variant_key
+        ));
+    }
+    Ok(crate::servant_enhancement::ServantEnhancementTarget {
+        entry_id: entry_id.to_string(),
+        servant_id: servant.id,
+        variant_key: servant.variant_key.clone(),
+        name_cn: servant.name_cn.clone(),
+        class_name: servant.class.clone(),
+        rarity: servant.rarity,
+        target_level: crate::servant_enhancement::normalize_level(target_level),
+        two_exp,
+        face_key: face_key.map(str::to_string),
+        face_template_paths,
+    })
+}
+
 pub(crate) fn load_enhancement_target(
     app: &tauri::AppHandle,
     variant_key: &str,

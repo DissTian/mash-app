@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import {
+  Button,
   Dialog,
   Flex,
   IconButton,
@@ -8,7 +9,7 @@ import {
   Tooltip,
 } from "@radix-ui/themes";
 import { invoke, convertFileSrc } from "../../tauri";
-import { GridIcon, MagnifyingGlassIcon, RowsIcon, SizeIcon } from "@radix-ui/react-icons";
+import { CheckIcon, GridIcon, MagnifyingGlassIcon, RowsIcon, SizeIcon } from "@radix-ui/react-icons";
 import type { Servant } from "../../types/servant";
 import type { ServantPickerAction, ServantPickerSettings } from "../../types/appUiSettings";
 import { PortraitSelectDialog } from "./PortraitSelectDialog";
@@ -54,7 +55,11 @@ import classUnknownSelectedIcon from "../../../src-tauri/resources/images/class/
 interface ServantSelectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelect: (servant: Servant) => void;
+  onSelect?: (servant: Servant) => void;
+  /** 多选模式：点击切换勾选，底部确认后一次性提交。 */
+  mode?: "single" | "multiple";
+  selectedVariantKeys?: string[];
+  onConfirm?: (servants: Servant[]) => void;
   servants: Servant[];
   /**
    * Servant ids to hide from the picker. Used by the team-builder to
@@ -274,12 +279,16 @@ export function ServantSelectDialog({
   open,
   onOpenChange,
   onSelect,
+  mode = "single",
+  selectedVariantKeys,
+  onConfirm,
   servants,
   disabledIds,
   defaultClassFilter,
   portraitRefreshKey,
   onPortraitSaved,
 }: ServantSelectDialogProps) {
+  const multiple = mode === "multiple";
   const [search, setSearch] = useState("");
   const [pickerSettings, setPickerSettings] = useState<ServantPickerSettings | null>(null);
   const [savingPickerSettings, setSavingPickerSettings] = useState(false);
@@ -294,6 +303,17 @@ export function ServantSelectDialog({
   const [faceSrcByKey, setFaceSrcByKey] = useState<Record<string, string | null>>({});
   const [portraitTarget, setPortraitTarget] = useState<Servant | null>(null);
   const [localPortraitRefreshKey, setLocalPortraitRefreshKey] = useState(0);
+  const [checkedVariantKeys, setCheckedVariantKeys] = useState<Set<string>>(
+    () => new Set(selectedVariantKeys ?? []),
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setCheckedVariantKeys(new Set(selectedVariantKeys ?? []));
+    // Only re-seed when the dialog opens; editing the checked set must not
+    // be reset by an unrelated parent render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastFaceRefreshToken = useRef<string | null>(null);
 
@@ -484,21 +504,43 @@ export function ServantSelectDialog({
     resetScroll();
   }, [open, defaultClassFilter, resetScroll]);
 
+  const toggleChecked = useCallback((variantKey: string) => {
+    setCheckedVariantKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(variantKey)) next.delete(variantKey);
+      else next.add(variantKey);
+      return next;
+    });
+  }, []);
+
   const handleSelect = useCallback(
     (servant: Servant) => {
-      onSelect(servant);
+      if (multiple) {
+        toggleChecked(servant.variantKey);
+        return;
+      }
+      onSelect?.(servant);
       onOpenChange(false);
       setSearch("");
       setActiveIndex(0);
       resetScroll();
     },
-    [onSelect, onOpenChange, resetScroll]
+    [multiple, onSelect, onOpenChange, resetScroll, toggleChecked]
   );
+
+  const handleConfirm = useCallback(() => {
+    onConfirm?.(servants.filter((servant) => checkedVariantKeys.has(servant.variantKey)));
+    onOpenChange(false);
+    setSearch("");
+    setActiveIndex(0);
+    resetScroll();
+  }, [checkedVariantKeys, onConfirm, onOpenChange, servants, resetScroll]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       onOpenChange(nextOpen);
       if (nextOpen) {
+        setCheckedVariantKeys(new Set(selectedVariantKeys ?? []));
         setClassFilter(normalizeClassFilter(defaultClassFilter));
         setActiveIndex(0);
         resetScroll();
@@ -512,7 +554,7 @@ export function ServantSelectDialog({
         resetScroll();
       }
     },
-    [defaultClassFilter, onOpenChange, resetScroll]
+    [defaultClassFilter, onOpenChange, resetScroll, selectedVariantKeys]
   );
 
   const ensureVisible = useCallback((index: number) => {
@@ -574,7 +616,9 @@ export function ServantSelectDialog({
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
       <Dialog.Content maxWidth="560px" className="servant-dialog">
-        <Dialog.Title size="4">选择从者</Dialog.Title>
+        <Dialog.Title size="4">
+          {multiple ? "选择从者（可多选）" : "选择从者"}
+        </Dialog.Title>
 
         <Flex align="center" gap="2" className="servant-search-row">
           <TextField.Root
@@ -708,6 +752,7 @@ export function ServantSelectDialog({
               className={isGrid ? "servant-options-grid" : undefined}
               role="listbox"
               aria-label="从者列表"
+              aria-multiselectable={multiple || undefined}
             >
               {visible.map((servant, i) => {
                 const index = startIndex + i;
@@ -716,9 +761,15 @@ export function ServantSelectDialog({
                   <button
                     key={servant.variantKey}
                     role="option"
-                    aria-selected={index === safeActiveIndex}
+                    aria-selected={
+                      multiple
+                        ? checkedVariantKeys.has(servant.variantKey)
+                        : index === safeActiveIndex
+                    }
                     aria-label={isGrid ? displayCnName(servant) : undefined}
-                    className={`servant-option ${index === safeActiveIndex ? "focused" : ""}`}
+                    className={`servant-option ${index === safeActiveIndex ? "focused" : ""} ${
+                      multiple && checkedVariantKeys.has(servant.variantKey) ? "checked" : ""
+                    }`}
                     style={{
                       position: "absolute",
                       top: Math.floor(index / columns) * rowHeight,
@@ -748,6 +799,11 @@ export function ServantSelectDialog({
                           <img className="servant-face-image" src={faceSrcByKey[servant.variantKey] ?? ""} alt="" />
                         ) : (
                           <span>{servant.class.slice(0, 2)}</span>
+                        )}
+                        {multiple && checkedVariantKeys.has(servant.variantKey) && (
+                          <span className="servant-option-check" aria-hidden="true">
+                            <CheckIcon />
+                          </span>
                         )}
                         {isGrid && (
                           <img
@@ -805,6 +861,18 @@ export function ServantSelectDialog({
             </div>
           )}
         </div>
+
+        {multiple && (
+          <Flex align="center" justify="between" gap="3" mt="3" className="servant-multi-footer">
+            <Text size="2" color="gray">已选 {checkedVariantKeys.size} 位从者</Text>
+            <Flex gap="2">
+              <Button variant="soft" color="gray" onClick={() => onOpenChange(false)}>
+                取消
+              </Button>
+              <Button onClick={handleConfirm}>确定</Button>
+            </Flex>
+          </Flex>
+        )}
       </Dialog.Content>
 
       {portraitTarget && (

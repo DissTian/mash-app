@@ -34,7 +34,7 @@ export function createFeatureToggles(env: FeatureToggleEnv): FeatureToggles {
   return {
     servantEnhancement: envFlag(
       env.VITE_FEATURE_SERVANT_ENHANCEMENT,
-      env.DEV
+      true
     ),
     craftEssenceEnhancement: envFlag(
       env.VITE_FEATURE_CRAFT_ESSENCE_ENHANCEMENT,

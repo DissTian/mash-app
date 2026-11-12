@@ -13,6 +13,7 @@
 @import "./battle-scene.css";
 @import "./advanced-command.css";
 @import "./status-and-battle.css";
+@import "./enhancement/index.css";
 @import "./debug.css";
 @import "./rank-up-quest.css";
 @import "./command/index.css";

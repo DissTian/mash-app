@@ -26,7 +26,7 @@ describe("feature toggles", () => {
 
   it("keeps released tools available in production builds", () => {
     expect(createFeatureToggles({ DEV: false })).toEqual({
-      servantEnhancement: false,
+      servantEnhancement: true,
       craftEssenceEnhancement: true,
       friendPointSummon: true,
       rankUpQuest: true,

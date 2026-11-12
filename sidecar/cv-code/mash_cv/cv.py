@@ -789,6 +789,7 @@ def _score_template_region(
     template_key: Optional[str] = None,
     template_scale: float = 1.0,
     template_reference_width: Optional[float] = None,
+    mask: Optional[np.ndarray] = None,
 ) -> dict:
     """Find the best template location and always return its normalized box."""
     original_size = {"w": tmpl.shape[1], "h": tmpl.shape[0]}
@@ -797,7 +798,8 @@ def _score_template_region(
     tmpl = _scale_static_template_for_image(
         tmpl, img, template_key, template_reference_width
     )
-    mask = template_masks.get(template_key) if template_key else None
+    if mask is None:
+        mask = template_masks.get(template_key) if template_key else None
     if mask is not None:
         mask = _scale_static_template_for_image(
             mask, img, template_key, template_reference_width
@@ -1145,8 +1147,11 @@ def _infer_item_grid_cells(anchors: list[dict], region: dict, img_w: int, img_h:
     ref_card_x = float(ref["x"]) - ITEM_GRID_ANCHOR_OFFSET_X
     ref_card_y = float(ref["y"]) - ITEM_GRID_ANCHOR_OFFSET_Y
     list_top = float(region["y"])
+    # The CN anchor is the card's bottom bar, not the same vertical offset as
+    # the JP "Servant" bar. Clamp a reference that computes above the visible
+    # list to the list top instead of skipping a whole row.
     if ref_card_y < list_top:
-        ref_card_y += ITEM_GRID_ROW_PITCH
+        ref_card_y = list_top
 
     row0_y = ref_card_y
     col0_x = ref_card_x - ref_col * ITEM_GRID_COL_PITCH
@@ -1803,6 +1808,22 @@ def _read_craft_essence_grid(img: np.ndarray, cmd: dict) -> dict:
     }
 
 
+def _build_mask_for_template_region(width: int, height: int, region: dict) -> np.ndarray:
+    """Build a 0/255 matching mask covering a normalized template region.
+
+    The enhancement list masks the 2EXP badge area so the underlying card art
+    is ignored instead of being mistaken for a mismatch. A zero pixel tells
+    ``cv2.matchTemplate`` to ignore that location.
+    """
+    mask = np.full((height, width), 255, dtype=np.uint8)
+    x = max(0, min(width - 1, int(round(float(region.get("x", 0.0)) * width))))
+    y = max(0, min(height - 1, int(round(float(region.get("y", 0.0)) * height))))
+    w = max(1, min(width - x, int(round(float(region.get("w", 0.0)) * width))))
+    h = max(1, min(height - y, int(round(float(region.get("h", 0.0)) * height))))
+    mask[y : y + h, x : x + w] = 0
+    return mask
+
+
 def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
     region = cmd.get("region", ITEM_GRID_DEFAULT_REGION)
     anchor_key = str(cmd.get("anchorTemplateKey", ITEM_GRID_DEFAULT_ANCHOR_TEMPLATE))
@@ -1812,6 +1833,7 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
     template_paths = [str(p) for p in cmd.get("faceTemplatePaths", []) if p]
     template_size = cmd.get("templateSize")
     template_crop = cmd.get("templateCrop")
+    mask_region = cmd.get("maskRegion")
 
     grid = _find_item_grid(img, cmd)
     anchors = grid["anchors"]
@@ -1826,8 +1848,15 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
             raw = _read_template_image(template_path, cv2.IMREAD_GRAYSCALE)
             tmpl = _resize_template(raw, template_size)
             tmpl = _crop_template(tmpl, template_crop)
+            template_mask = (
+                _build_mask_for_template_region(tmpl.shape[1], tmpl.shape[0], mask_region)
+                if mask_region
+                else None
+            )
             for cell in cells:
-                scored = _score_template_region(img, tmpl, cell["region"], face_threshold)
+                scored = _score_template_region(
+                    img, tmpl, cell["region"], face_threshold, mask=template_mask
+                )
                 item = {
                     "template": os.path.basename(template_path),
                     "templatePath": template_path,
@@ -1851,13 +1880,48 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
                         best = item
 
     found = bool(best and best.get("found"))
+    # CN card bars vary with rarity/selection state, and a partially visible
+    # last row has no complete bottom-bar anchor. Search the actual portrait
+    # crop across the list when grid matching misses; keep a stricter threshold
+    # than the filtered grid because this searches many more candidate pixels.
+    direct_attempted = _current_server == "CN" and not found and bool(template_paths)
+    direct_threshold = max(0.85, face_threshold)
+    if direct_attempted:
+        for template_path in template_paths:
+            raw = _read_template_image(template_path, cv2.IMREAD_GRAYSCALE)
+            tmpl = _crop_template(_resize_template(raw, template_size), template_crop)
+            template_mask = (
+                _build_mask_for_template_region(tmpl.shape[1], tmpl.shape[0], mask_region)
+                if mask_region
+                else None
+            )
+            scored = _score_template_region(
+                img, tmpl, region, direct_threshold, mask=template_mask
+            )
+            item = {
+                "template": os.path.basename(template_path),
+                "templatePath": template_path,
+                "row": None,
+                "col": None,
+                "found": bool(scored["found"]),
+                "score": float(scored["score"]),
+                "x": float(scored["x"]),
+                "y": float(scored["y"]),
+                "region": scored["region"],
+            }
+            matches.append(item)
+            if best is None or item["score"] > float(best["score"]) + 1e-9:
+                best = item
+        found = bool(best and best.get("found"))
+
     fail_reason = None
-    if grid_fail_reason:
-        fail_reason = grid_fail_reason
-    elif not template_paths:
-        fail_reason = "no_face_templates"
-    elif not found:
-        fail_reason = "face_below_threshold"
+    if not found:
+        if grid_fail_reason:
+            fail_reason = grid_fail_reason
+        elif not template_paths:
+            fail_reason = "no_face_templates"
+        else:
+            fail_reason = "face_below_threshold"
 
     return {
         "found": found,
@@ -1875,6 +1939,10 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
             "anchorEdgeThreshold": edge_threshold,
             "anchorGrayThreshold": gray_threshold,
             "faceThreshold": face_threshold,
+            "directSearchAttempted": direct_attempted,
+            "directSearchThreshold": direct_threshold if direct_attempted else None,
+            "matchMethod": "direct" if best and best["row"] is None else "grid",
+            "gridFailReason": grid_fail_reason,
             "region": dict(region),
             "anchorCount": len(anchors),
             "gridCellCount": len(cells),
@@ -7538,6 +7606,17 @@ def _main_repl() -> None:
                     _reply(req_id, {"ok": False, "reason": "frame_unavailable", "error": err})
                 else:
                     _reply(req_id, _read_bond_level_up(img, bool(cmd.get("debug", False))))
+            elif action == "read_enhancement_current_level":
+                from mash_cv.enhancement_level import read_current_level
+                img, err = _load_frame(cmd)
+                if img is None:
+                    _reply(req_id, {"found": False, "current": None, "text": "", "error": err})
+                else:
+                    ocr = _get_ocr()
+                    if ocr is None:
+                        _reply(req_id, {"found": False, "current": None, "text": "", "error": "RapidOCR not available"})
+                    else:
+                        _reply(req_id, read_current_level(img, ocr.text_recognizer, cmd.get("region")))
             elif action == "read_level_digits":
                 img, err = _load_frame(cmd)
                 if img is None:

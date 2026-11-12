@@ -535,10 +535,12 @@ pub(crate) fn get_automation_status(
 mod craft_essence;
 mod enhancement;
 mod friend_point;
+mod servant_enhancement;
 mod startup;
 pub(crate) use craft_essence::*;
 pub(crate) use enhancement::*;
 pub(crate) use friend_point::*;
+pub(crate) use servant_enhancement::*;
 use startup::{prepare_automation_session, AutomationSession, StartupFeedback};
 
 #[cfg(test)]

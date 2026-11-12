@@ -2465,6 +2465,93 @@ class TestFindEnhancementServantGrid:
         assert result["gridCells"] == []
 
 
+class TestCnServantListFallback:
+    def _command(self, width, stage=1, **extra):
+        command = {
+            "region": {"x": 0.05, "y": 0.18, "w": 0.78, "h": 0.76},
+            "templateSize": {"w": round(width * 223 / 2560), "h": round(width * 223 / 2560)},
+            "templateCrop": {"x": 0.195, "y": 0.265, "w": 0.805, "h": 0.438},
+            "faceThreshold": 0.60,
+            "faceTemplatePaths": [str(
+                Path(_TEST_SCREENSHOTS_DIR).parent / "templates" / "enhancement-cn"
+                / f"face_servant_366_{stage}.png"
+            )],
+        }
+        command.update(extra)
+        return command
+
+    def _image(self, width):
+        assert mash_cv._load_templates(_PROD_CN_TEMPLATES_DIR)["ok"] is True
+        from mash_cv import cv as cv_module
+        cv_module._set_server("CN")
+        image = cv2.imread(os.path.join(_TEST_SCREENSHOTS_DIR, "servant_select_cn_partial.png"))
+        assert image is not None
+        return cv2.resize(image, (width, width * 9 // 16))
+
+    @pytest.mark.parametrize("width", (1920, 2560))
+    def test_real_cn_partial_last_row_is_searched_after_grid_miss(self, width):
+        image = self._image(width)
+        result = mash_cv._find_enhancement_servant_grid(image, self._command(width))
+
+        assert result["found"] is True, result["diagnostics"]
+        assert result["anchors"]  # Existing anchors still omit the partial last row.
+        assert result["diagnostics"]["matchMethod"] == "direct"
+        assert result["diagnostics"]["directSearchThreshold"] == 0.85
+        assert result["diagnostics"]["failReason"] is None
+        assert result["score"] > 0.95
+        assert result["x"] == pytest.approx(0.632, abs=0.003)
+        assert result["y"] == pytest.approx(0.859, abs=0.003)
+        assert result["best"]["row"] is None
+
+    @pytest.mark.parametrize("width", (1920, 2560))
+    def test_visible_portrait_matches_without_any_bottom_bar_anchors(self, width):
+        image = self._image(width)
+        sparse = np.zeros_like(image)
+        # Preserve the real target portrait, with no card-bottom bars anywhere.
+        x0, x1 = round(width * 0.595), round(width * 0.669)
+        y0, y1 = round(image.shape[0] * 0.823), round(image.shape[0] * 0.895)
+        sparse[y0:y1, x0:x1] = image[y0:y1, x0:x1]
+        result = mash_cv._find_enhancement_servant_grid(sparse, self._command(width))
+
+        assert result["anchors"] == []
+        assert result["gridCells"] == []
+        assert result["found"] is True
+        assert result["diagnostics"]["gridFailReason"] == "no_anchors"
+        assert result["diagnostics"]["failReason"] is None
+        assert result["score"] > 0.95
+
+    def test_no_target_and_explicit_different_portrait_do_not_match(self):
+        image = self._image(1920)
+        wrong = mash_cv._find_enhancement_servant_grid(image, self._command(1920, stage=3))
+        assert wrong["found"] is False
+        assert wrong["diagnostics"]["directSearchAttempted"] is True
+        assert wrong["score"] < 0.85
+
+        empty = mash_cv._find_enhancement_servant_grid(np.zeros_like(image), self._command(1920))
+        assert empty["found"] is False
+        assert empty["diagnostics"]["failReason"] == "no_anchors"
+
+    def test_direct_search_respects_list_region_and_requested_threshold(self):
+        image = self._image(1920)
+        outside = self._command(1920, region={"x": 0.05, "y": 0.18, "w": 0.78, "h": 0.60})
+        assert mash_cv._find_enhancement_servant_grid(image, outside)["found"] is False
+        strict = mash_cv._find_enhancement_servant_grid(image, self._command(1920, faceThreshold=0.999))
+        assert strict["found"] is False
+        assert strict["diagnostics"]["directSearchThreshold"] == 0.999
+
+    def test_direct_search_preserves_two_exp_mask(self):
+        image = self._image(1920)
+        # Cover the badge rectangle inside the real portrait crop.
+        image[909:946, 1153:1274] = (0, 0, 255)
+        command = self._command(1920, maskRegion={"x": 0.05, "y": 0.25, "w": 0.90, "h": 0.50})
+        result = mash_cv._find_enhancement_servant_grid(image, command)
+        assert result["found"] is True
+        assert result["diagnostics"]["matchMethod"] == "direct"
+        assert result["x"] == pytest.approx(0.632, abs=0.003)
+        assert result["y"] == pytest.approx(0.859, abs=0.003)
+        assert result["score"] > 0.90
+
+
 # ── _find_command_cards ─────────────────────────────────────────────────
 
 

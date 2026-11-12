@@ -148,6 +148,10 @@ pub(crate) fn battle_statistics_path(app: &tauri::AppHandle) -> PathBuf {
     app_data_dir(app).join("battle_statistics.sqlite3")
 }
 
+pub(crate) fn servant_enhancement_queue_path(app: &tauri::AppHandle) -> PathBuf {
+    app_data_dir(app).join("servant_enhancement_queue.json")
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppUiSettings {

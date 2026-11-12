@@ -82,6 +82,7 @@ pub fn debug_find_enhancement_servant(
         Some(SERVANT_FACE_TEMPLATE_SIZE),
         threshold,
         0.0,
+        None,
     )?;
     eprintln!(
         "[debug_find_enhancement_servant] servant_id={} anchors={} cells={} best={:.3}",

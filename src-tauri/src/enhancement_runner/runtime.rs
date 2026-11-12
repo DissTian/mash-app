@@ -510,6 +510,7 @@ impl EnhancementRunner {
                 Some(SERVANT_FACE_TEMPLATE_SIZE),
                 0.85,
                 1.2,
+                None,
             )
             .recoverable()?
         {

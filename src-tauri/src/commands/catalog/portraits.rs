@@ -310,6 +310,40 @@ pub(crate) fn save_servant_portrait_selection(
     Ok(())
 }
 
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ServantFaceOption {
+    pub(crate) key: String,
+    pub(crate) path: String,
+    pub(crate) stage: u32,
+}
+
+/// List the recognition face templates for one variant in ascension order.
+#[tauri::command]
+pub(crate) fn list_servant_faces(
+    app: tauri::AppHandle,
+    variant_key: String,
+) -> Result<Vec<ServantFaceOption>, String> {
+    let servant = servant_by_variant_key(&variant_key)?;
+    let Some(root) = resolve_servant_assets_dir(&app) else {
+        return Ok(Vec::new());
+    };
+    let servant_dir = root.join(servant.id.to_string());
+    let mut options: Vec<ServantFaceOption> = pick_faces_desc_in(&servant_dir)
+        .into_iter()
+        .filter_map(|path| {
+            let key = path.file_stem()?.to_str()?.to_string();
+            Some(ServantFaceOption {
+                key,
+                path: path.to_string_lossy().into_owned(),
+                stage: face_template_stage(&path),
+            })
+        })
+        .collect();
+    options.sort_by_key(|option| option.stage);
+    Ok(options)
+}
+
 #[tauri::command]
 pub(crate) fn get_servant_face_path(
     app: tauri::AppHandle,

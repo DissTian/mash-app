@@ -3,6 +3,21 @@
 use super::*;
 
 impl SidecarClient {
+    /// Read only the current servant level from the fixed CN enhancement ROI.
+    pub fn read_enhancement_current_level(
+        &mut self,
+        image_path: Option<&Path>,
+    ) -> Result<EnhancementCurrentLevelResult, CvError> {
+        let mut req = request(SidecarCommand::ReadEnhancementCurrentLevel, serde_json::json!({}))?;
+        Self::add_image_path(&mut req, image_path);
+        let resp = self.send_recv_with_timeout(&req, RECOVERABLE_OCR_COMMAND_TIMEOUT)?;
+        if let Some(err) = resp.get("error").and_then(|value| value.as_str()) {
+            return Err(CvError::Other(err.to_string()));
+        }
+        Ok(serde_json::from_value::<EnhancementCurrentLevelResult>(resp)
+            .map_err(|error| format!("invalid read_enhancement_current_level response: {error}"))?)
+    }
+
     pub fn find_enhancement_servant_grid(
         &mut self,
         image_path: Option<&Path>,
@@ -12,6 +27,7 @@ impl SidecarClient {
         template_size: Option<(u32, u32)>,
         threshold: f64,
         retry_seconds: f64,
+        mask_region: Option<NormRect>,
     ) -> Result<FindEnhancementServantGridResult, CvError> {
         let mut req = request(
             SidecarCommand::FindEnhancementServantGrid,
@@ -41,6 +57,19 @@ impl SidecarClient {
         if let Some((w, h)) = template_size {
             if let Some(obj) = req.as_object_mut() {
                 obj.insert("templateSize".into(), serde_json::json!({ "w": w, "h": h }));
+            }
+        }
+        if let Some(region) = mask_region {
+            if let Some(obj) = req.as_object_mut() {
+                obj.insert(
+                    "maskRegion".into(),
+                    serde_json::json!({
+                        "x": region.x,
+                        "y": region.y,
+                        "w": region.w,
+                        "h": region.h,
+                    }),
+                );
             }
         }
         Self::add_image_path(&mut req, image_path);
