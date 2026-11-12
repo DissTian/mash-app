@@ -59,20 +59,22 @@ const SERVANT_LIST_REGION: NormRect = NormRect {
     w: 0.78,
     h: 0.76,
 };
-const SERVANT_FACE_MATCH_CROP: NormRect = NormRect {
+pub(super) const SERVANT_FACE_MATCH_CROP: NormRect = NormRect {
     x: 0.195,
     y: 0.265,
     w: 0.805,
     h: 0.438,
 };
-/// The 2EXP badge covers the face centre. Ignore that rectangle while matching
-/// so the surviving card art edges can identify the servant; the caller retries
-/// unmasked at the normal threshold when this fails.
-const TWO_EXP_MASK_REGION: NormRect = NormRect {
-    x: 0.05,
-    y: 0.25,
-    w: 0.90,
-    h: 0.50,
+/// The 2EXP badge is painted across the face centre, which is exactly where
+/// `SERVANT_FACE_MATCH_CROP` looks, so masking that band leaves almost nothing
+/// to match. The card's bottom-left corner stays clean, so 2EXP entries compare
+/// only that corner: the correct card scores 0.97 there while the runner-up
+/// card stays at 0.46, versus 0.19/0.27 with the masked centre band.
+pub(super) const TWO_EXP_FACE_MATCH_CROP: NormRect = NormRect {
+    x: 0.0,
+    y: 0.66,
+    w: 0.30,
+    h: 0.34,
 };
 
 const HOME_MENU_BUTTON: Point = Point::new(0.90, 0.90);
@@ -681,22 +683,22 @@ impl ServantEnhancementRunner {
 
         let template_size = self.template_size;
         if target.two_exp {
-            let masked = self.sidecar().find_enhancement_servant_grid(
+            let corner = self.sidecar().find_enhancement_servant_grid(
                 None,
                 &paths,
                 SERVANT_LIST_REGION,
-                SERVANT_FACE_MATCH_CROP,
+                TWO_EXP_FACE_MATCH_CROP,
                 Some(template_size),
                 threshold.max(0.72),
                 1.0,
-                Some(TWO_EXP_MASK_REGION),
+                None,
             );
-            match masked {
+            match corner {
                 Ok(result) if result.found => {
                     self.emit(
                         SCREEN_SELECT,
                         &format!(
-                            "命中 2EXP 掩码模板 {}（score {:.3}，method={}）",
+                            "命中 2EXP 左下角模板 {}（score {:.3}，method={}）",
                             target.name_cn,
                             result.score,
                             if result.best.as_ref().is_some_and(|best| best.row.is_none()) {
@@ -714,7 +716,7 @@ impl ServantEnhancementRunner {
                     self.emit(
                         SCREEN_SELECT,
                         &format!(
-                            "2EXP 掩码未命中 {}（score {:.3}），回退普通模板",
+                            "2EXP 左下角未命中 {}（score {:.3}），回退普通模板",
                             target.name_cn, result.score
                         ),
                         LogLevel::Debug,
@@ -723,7 +725,7 @@ impl ServantEnhancementRunner {
                 Err(err) => {
                     self.emit(
                         SCREEN_SELECT,
-                        &format!("2EXP 掩码匹配失败: {err}，回退普通模板"),
+                        &format!("2EXP 左下角匹配失败: {err}，回退普通模板"),
                         LogLevel::Debug,
                     );
                 }

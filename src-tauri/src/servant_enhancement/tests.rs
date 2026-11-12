@@ -2,7 +2,7 @@ use super::runner::{
     classify_screen, current_level_from_result, decide_main_action, filter_class_point,
     main_shows_empty_selection, parse_bare_level, read_level_from_ocr,
     resolve_current_level_reads, EntryOutcome, MainAction, Screen, SelectionFailure,
-    SelectionOutcome, SelectionProgress,
+    SelectionOutcome, SelectionProgress, SERVANT_FACE_MATCH_CROP, TWO_EXP_FACE_MATCH_CROP,
 };
 use crate::screen::{EnhancementCurrentLevelResult, NormRect, OcrFragment, OcrRegionResult};
 use super::*;
@@ -437,4 +437,27 @@ fn cn_screenshot_ocr_responses_read_levels_at_both_resolutions() {
         let level = read_level_from_ocr(&case.full).or_else(|| read_level_from_ocr(&case.crop));
         assert_eq!(level, Some(case.expected), "{} at {}px", case.screenshot, case.width);
     }
+}
+
+#[test]
+fn two_exp_crop_reads_only_the_clean_bottom_left_corner() {
+    // The 2EXP badge spans roughly the middle 60px of a ~194px card (y 0.33-0.69
+    // in cell space). The crop must stay clear of it on both axes so no badge
+    // pixel reaches cv2.matchTemplate.
+    let crop = TWO_EXP_FACE_MATCH_CROP;
+    assert_eq!(crop.x, 0.0, "crop must start at the card's left edge");
+    assert!(crop.y >= 0.60, "crop must sit below the badge band");
+    assert!(crop.y + crop.h <= 1.0, "crop must stay inside the template");
+    assert!(crop.w <= 0.50, "crop must stay left of the card centre");
+    assert!(crop.w * crop.h <= 0.15, "crop should be a corner, not the whole card");
+    assert_ne!(
+        (crop.x, crop.y, crop.w, crop.h),
+        (
+            SERVANT_FACE_MATCH_CROP.x,
+            SERVANT_FACE_MATCH_CROP.y,
+            SERVANT_FACE_MATCH_CROP.w,
+            SERVANT_FACE_MATCH_CROP.h,
+        ),
+        "2EXP matching must not fall back to the badge-covered centre band"
+    );
 }
