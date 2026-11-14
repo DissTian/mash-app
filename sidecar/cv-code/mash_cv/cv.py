@@ -5147,16 +5147,11 @@ def _support_recognize_anchor_rows(
     jobs: list[tuple[np.ndarray, tuple[int, int, int, int]]] = []
     for anchor in confirm_anchors:
         anchor_y = float(anchor.get("y", 0.0))
+        # Only the name + NP strips are recognised here. The servant level is
+        # read separately from a tight, recognition-only crop
+        # (`_support_extract_servant_level`); the old level strip never
+        # produced usable text and cost a third of this batch.
         regions = (
-            (
-                {
-                    "x": SUPPORT_ROW_LEVEL_REGION_X,
-                    "y": anchor_y + SUPPORT_ROW_LEVEL_REGION_Y_OFFSET,
-                    "w": SUPPORT_ROW_LEVEL_REGION_W,
-                    "h": SUPPORT_ROW_LEVEL_REGION_H,
-                },
-                False,
-            ),
             (
                 {
                     "x": SUPPORT_ROW_NAME_REGION_X,
@@ -5194,6 +5189,13 @@ def _support_recognize_anchor_rows(
                 ),
             )
             if x1 <= x0 or y1 <= y0:
+                continue
+            # A row clipped by the screen edge leaves a very short crop; the
+            # recogniser stretches it by aspect ratio (e.g. 20x942 -> ~2256 px
+            # wide) and one such image can cost more than the rest of the
+            # batch combined. Such crops cannot contain the full text anyway.
+            expected_height = max(1, int(round(float(region["h"]) * h)))
+            if (y1 - y0) < max(24, int(round(expected_height * 0.5))):
                 continue
             text_crop = img[y0:y1, x0:x1]
             if text_crop.size == 0:
@@ -5831,7 +5833,10 @@ def _support_parse_servant_level_text(text: str) -> Optional[int]:
         flags=re.IGNORECASE,
     )
     if not match:
-        match = re.search(r"\b(\d{1,3})\s*/\s*\d{1,3}\b", normalized)
+        # The recognition-only model can drop the leading ``等级``/``Lv`` glyph
+        # (e.g. ``级100/100``). The crop only contains the level label, so a
+        # plain ``100/100`` fallback is safe.
+        match = re.search(r"(\d{1,3})\s*/\s*\d{1,3}", normalized)
     if not match:
         match = re.fullmatch(r"\s*(\d{1,3})\s*", normalized)
     if not match:
@@ -5840,33 +5845,81 @@ def _support_parse_servant_level_text(text: str) -> Optional[int]:
     return level if 1 <= level <= SUPPORT_SERVANT_LEVEL_MAX else None
 
 
+# Tight single-line band around the CN/JP level label (`等级100/100`), measured
+# relative to the row's top edge on both servers' support lists. Reading only
+# this crop with the recognition-only model costs ~20 ms per row instead of the
+# ~540 ms full detector pass.
+SUPPORT_ROW_LEVEL_TIGHT_X = 0.055
+SUPPORT_ROW_LEVEL_TIGHT_DY = -0.115
+SUPPORT_ROW_LEVEL_TIGHT_W = 0.115
+SUPPORT_ROW_LEVEL_TIGHT_H = 0.072
+
+
+def _support_level_candidates(results: Any) -> list[tuple[float, int]]:
+    candidates: list[tuple[float, int]] = []
+    for result in results or []:
+        if len(result) >= 3:
+            text, confidence = str(result[1]), float(result[2] or 0.0)
+        elif len(result) == 2:
+            text, confidence = str(result[0]), float(result[1] or 0.0)
+        else:
+            continue
+        level = _support_parse_servant_level_text(text)
+        if level is not None:
+            candidates.append((confidence, level))
+    return candidates
+
+
 def _support_extract_servant_level(img: np.ndarray, row_region: dict) -> Optional[int]:
-    """OCR the level label above the portrait for one matched support row."""
+    """Read the level label above the portrait for one matched support row."""
     ocr = _get_ocr()
     if ocr is None:
         return None
     h, w = img.shape[:2]
     row_y = float(row_region.get("y", 0.0))
-    x0 = max(0, int(round(SUPPORT_ROW_LEVEL_REGION_X * w)))
-    y0 = max(0, int(round((row_y + SUPPORT_ROW_LEVEL_REGION_Y_OFFSET) * h)))
-    x1 = min(w, int(round((SUPPORT_ROW_LEVEL_REGION_X + SUPPORT_ROW_LEVEL_REGION_W) * w)))
-    y1 = min(h, int(round((row_y + SUPPORT_ROW_LEVEL_REGION_Y_OFFSET + SUPPORT_ROW_LEVEL_REGION_H) * h)))
-    if x1 <= x0 or y1 <= y0:
-        return None
-    crop = img[y0:y1, x0:x1]
-    if crop.size == 0:
+
+    def crop_of(x: float, y: float, cw: float, ch: float) -> Optional[np.ndarray]:
+        x0 = max(0, int(round(x * w)))
+        y0 = max(0, int(round(y * h)))
+        x1 = min(w, int(round((x + cw) * w)))
+        y1 = min(h, int(round((y + ch) * h)))
+        if x1 <= x0 or y1 <= y0:
+            return None
+        crop = img[y0:y1, x0:x1]
+        return crop if crop.size else None
+
+    recognizer = getattr(ocr, "text_recognizer", None)
+    if callable(recognizer):
+        tight = crop_of(
+            SUPPORT_ROW_LEVEL_TIGHT_X,
+            row_y + SUPPORT_ROW_LEVEL_TIGHT_DY,
+            SUPPORT_ROW_LEVEL_TIGHT_W,
+            SUPPORT_ROW_LEVEL_TIGHT_H,
+        )
+        if tight is not None:
+            try:
+                results, _elapsed = recognizer([tight])
+            except Exception:  # noqa: BLE001 - fall through to the full OCR
+                results = []
+            candidates = _support_level_candidates(results)
+            if candidates:
+                return max(candidates, key=lambda item: item[0])[1]
+
+    # Fallback for locales/layouts where the tight crop misses the label (or an
+    # OCR backend without a recognition-only entry point).
+    crop = crop_of(
+        SUPPORT_ROW_LEVEL_REGION_X,
+        row_y + SUPPORT_ROW_LEVEL_REGION_Y_OFFSET,
+        SUPPORT_ROW_LEVEL_REGION_W,
+        SUPPORT_ROW_LEVEL_REGION_H,
+    )
+    if crop is None:
         return None
     try:
         results, _elapsed = ocr(crop)
     except Exception:  # noqa: BLE001 - level OCR is an optional filter detail
         return None
-    candidates = []
-    for result in results or []:
-        if len(result) < 3:
-            continue
-        level = _support_parse_servant_level_text(str(result[1]))
-        if level is not None:
-            candidates.append((float(result[2] or 0.0), level))
+    candidates = _support_level_candidates(results)
     if not candidates:
         return None
     return max(candidates, key=lambda item: item[0])[1]

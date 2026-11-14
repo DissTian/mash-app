@@ -124,6 +124,7 @@ pub fn debug_find_supports(
     support_grand_mode: Option<bool>,
     support_star_map_score_min: Option<u32>,
     support_grand_star_map_score_min: Option<u32>,
+    release_ocr: Option<bool>,
 ) -> Result<DebugFindSupportsResult, String> {
     require_automation_idle(
         &handle_state,
@@ -201,7 +202,13 @@ pub fn debug_find_supports(
         false,
         true,
     );
-    let release_result = client.release_ocr();
+    // Keep the OCR worker warm by default; the debug page can opt into
+    // releasing it after each recognition (useful when memory matters).
+    let release_result = if release_ocr.unwrap_or(false) {
+        client.release_ocr()
+    } else {
+        Ok(())
+    };
     let result = find_result?;
     release_result?;
     eprintln!(

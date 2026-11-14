@@ -39,6 +39,7 @@ export interface DebugPagePrefs {
   supportScoreGrandMode?: boolean;
   supportStarMapScoreMin?: number | null;
   supportGrandStarMapScoreMin?: number | null;
+  supportReleaseOcr?: boolean;
   enhancementServantId?: number | null;
   enhancementServantThreshold?: string;
   enhancementTwoExp?: boolean;

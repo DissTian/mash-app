@@ -241,6 +241,9 @@ export function DebugPage({
   );
   const [supportStarMapScoreMin, setSupportStarMapScoreMin] =
     useState<number | null>(asNumberOrNull(initialPrefs.supportStarMapScoreMin));
+  const [supportReleaseOcr, setSupportReleaseOcr] = useState(
+    initialPrefs.supportReleaseOcr === true
+  );
   const [supportGrandStarMapScoreMin, setSupportGrandStarMapScoreMin] =
     useState<number | null>(
       asNumberOrNull(initialPrefs.supportGrandStarMapScoreMin)
@@ -377,6 +380,7 @@ export function DebugPage({
       supportScoreGrandMode,
       supportStarMapScoreMin,
       supportGrandStarMapScoreMin,
+      supportReleaseOcr,
       enhancementServantId,
       enhancementServantThreshold,
       enhancementTwoExp,
@@ -402,6 +406,7 @@ export function DebugPage({
     supportScoreGrandMode,
     supportStarMapScoreMin,
     supportGrandStarMapScoreMin,
+    supportReleaseOcr,
     enhancementServantId,
     enhancementServantThreshold,
     enhancementTwoExp,
@@ -1185,6 +1190,7 @@ export function DebugPage({
           supportGrandStarMapScoreMin: supportScoreGrandMode
             ? supportGrandStarMapScoreMin
             : null,
+          releaseOcr: supportReleaseOcr,
         })
       );
       setSupportResult(result);
@@ -1357,6 +1363,7 @@ export function DebugPage({
     supportScoreGrandMode,
     supportStarMapScoreMin,
     supportGrandStarMapScoreMin,
+    supportReleaseOcr,
     supportMetadata,
     displayServantName,
     log,
@@ -1975,6 +1982,18 @@ export function DebugPage({
                   />
                 </Flex>
               )}
+              <label
+                className="debug-coord-toggle"
+                title="默认关闭以保持 OCR 进程热启动；开启后每次识别结束释放 OCR 进程，下次识别需要重新加载模型。"
+              >
+                <Checkbox
+                  checked={supportReleaseOcr}
+                  onCheckedChange={(checked) =>
+                    setSupportReleaseOcr(checked === true)
+                  }
+                />
+                <Text size="1">识别后释放 OCR</Text>
+              </label>
               <Button
                 type="button"
                 size="1"

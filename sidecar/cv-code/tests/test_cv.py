@@ -3755,6 +3755,7 @@ def test_support_np_levels_from_jp_screenshot_with_misread_lv(size):
         ("Ｌｖ．９２／９２", 92),
         ("L. 90/90", 90),
         ("等级120/120", 120),
+        ("级100/100", 100),
         ("120/120", 120),
         ("120", 120),
         (" 92 ", 92),
@@ -3782,6 +3783,84 @@ def test_support_detail_extracts_servant_level_above_portrait():
         image,
         {"x": 0.177, "y": 0.66875, "w": 0.466, "h": 0.0833333333},
     ) == 92
+
+
+def test_support_servant_level_prefers_recognition_only_crop(monkeypatch):
+    import mash_cv.cv as cv
+
+    class FakeOcr:
+        def __init__(self):
+            self.full_calls = 0
+
+        def __call__(self, _crop):
+            self.full_calls += 1
+            return [], None
+
+        def text_recognizer(self, crops):
+            assert len(crops) == 1
+            return [("Lv.120/120", 0.99)], None
+
+    ocr = FakeOcr()
+    monkeypatch.setattr(cv, "_get_ocr", lambda: ocr)
+    image = np.zeros((1080, 1920, 3), dtype=np.uint8)
+
+    level = cv._support_extract_servant_level(image, {"x": 0.177, "y": 0.5})
+
+    assert level == 120
+    assert ocr.full_calls == 0
+
+
+def test_support_servant_level_falls_back_to_full_ocr_when_crop_misses(monkeypatch):
+    import mash_cv.cv as cv
+
+    class FakeOcr:
+        def __init__(self):
+            self.full_calls = 0
+
+        def __call__(self, _crop):
+            self.full_calls += 1
+            return [([[0, 0], [1, 0], [1, 1], [0, 1]], "等级92/92", 0.97)], None
+
+        def text_recognizer(self, _crops):
+            return [("", 0.0)], None
+
+    ocr = FakeOcr()
+    monkeypatch.setattr(cv, "_get_ocr", lambda: ocr)
+    image = np.zeros((1080, 1920, 3), dtype=np.uint8)
+
+    # A recogniser result that cannot be parsed forces the full detector path.
+    level = cv._support_extract_servant_level(image, {"x": 0.177, "y": 0.5})
+
+    assert level == 92
+    assert ocr.full_calls == 1
+
+
+def test_support_anchor_rows_skip_crops_clipped_by_the_screen_edge(monkeypatch):
+    import mash_cv.cv as cv
+
+    class FakeOcr:
+        def __init__(self):
+            self.crops = []
+
+        def text_recognizer(self, crops):
+            self.crops = list(crops)
+            return [("名前", 0.99) for _ in crops], None
+
+    ocr = FakeOcr()
+    image = np.zeros((1000, 1000, 3), dtype=np.uint8)
+    anchors = [
+        {"x": 0.85, "y": 0.20, "w": 0.07, "h": 0.06},
+        {"x": 0.85, "y": 0.98, "w": 0.07, "h": 0.06},
+    ]
+
+    fragments = cv._support_recognize_anchor_rows(
+        image, ocr, anchors, crop_origin=(0, 0)
+    )
+
+    # Row 1 contributes the name + NP strips; row 2 is clipped by the bottom
+    # edge and must be dropped instead of being stretched by the recogniser.
+    assert len(ocr.crops) == 2
+    assert fragments and all(fragment[1] == "名前" for fragment in fragments)
 
 
 def test_support_skill_details_distinguish_owned_and_append_panels(monkeypatch):
@@ -3909,11 +3988,10 @@ def test_find_supports_uses_anchor_row_recognition_without_full_detector(monkeyp
             raise AssertionError("whole-list text detector should not run")
 
         def text_recognizer(self, crops):
-            assert len(crops) == 3
-            assert crops[1].shape == (55, 343, 3)
-            assert crops[2].shape == (60, 368, 3)
+            assert len(crops) == 2
+            assert crops[0].shape == (55, 343, 3)
+            assert crops[1].shape == (60, 368, 3)
             return [
-                ("Lv.100/100", 0.99),
                 ("阿尔托莉雅·Caster", 0.98),
                 ("为你纺织的时光之轮等级5", 0.97),
             ], None
@@ -3943,7 +4021,7 @@ def test_find_supports_uses_anchor_row_recognition_without_full_detector(monkeyp
 
     assert len(result["supports"]) == 1
     assert result["supports"][0]["npText"].endswith("等级5")
-    assert result["diagnostics"]["fragmentCount"] == 3
+    assert result["diagnostics"]["fragmentCount"] == 2
 
 
 def test_support_text_regions_keep_name_edge_and_include_np_level_tail():

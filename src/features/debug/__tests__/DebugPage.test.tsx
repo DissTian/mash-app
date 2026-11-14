@@ -399,6 +399,7 @@ describe("DebugPage", () => {
         supportGrandMode: true,
         supportStarMapScoreMin: 62,
         supportGrandStarMapScoreMin: 16,
+        releaseOcr: false,
       })
     );
     expect(
@@ -408,6 +409,65 @@ describe("DebugPage", () => {
       "✓ 达标"
     );
     expect(await screen.findByText("从者等级：120")).toBeInTheDocument();
+  });
+
+  it("opts into releasing the OCR worker for support recognition", async () => {
+    const user = userEvent.setup();
+    mockDebugPageBootstrap((cmd) => {
+      if (cmd === "debug_capture") {
+        return {
+          imagePath: "/tmp/debug.png",
+          screen: "SupportSelect",
+          score: 0.95,
+          screenSize: { w: 1920, h: 1080 },
+        };
+      }
+      if (cmd === "get_servant_metadata") {
+        return {
+          id: 418,
+          name: "星之希耶尔",
+          names: ["星之希耶尔"],
+          npNames: ["原理血戒·断头台"],
+        };
+      }
+      if (cmd === "debug_find_supports") {
+        return {
+          supports: [],
+          diagnostics: {
+            listRegion: { x: 0, y: 0, w: 1, h: 1 },
+            nameCandidates: [],
+            npCandidates: [],
+            fragmentCount: 0,
+          },
+          scoreFilter: {
+            grandMode: false,
+            starMapScoreMin: null,
+            grandStarMapScoreMin: null,
+          },
+        };
+      }
+      return null;
+    });
+
+    renderDebugPage();
+
+    await user.click(screen.getByRole("button", { name: "选择助战从者" }));
+    await user.type(
+      screen.getByPlaceholderText("搜索从者名称..."),
+      "星之希耶尔"
+    );
+    await user.click(await screen.findByRole("option", { name: /星之希耶尔/ }));
+    await user.click(screen.getByRole("button", { name: "截取画面" }));
+    await user.click(screen.getByRole("checkbox", { name: "识别后释放 OCR" }));
+    await user.click(screen.getByRole("button", { name: "识别助战" }));
+
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "debug_find_supports",
+        expect.objectContaining({ releaseOcr: true })
+      )
+    );
+
   });
 
   it("includes the support marker in command-card debug summaries", async () => {
