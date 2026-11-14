@@ -461,3 +461,19 @@ fn two_exp_crop_reads_only_the_clean_bottom_left_corner() {
         "2EXP matching must not fall back to the badge-covered centre band"
     );
 }
+
+#[test]
+fn cn_servant_list_region_stays_on_the_card_grid() {
+    // Calibrated against a live capture: the region must start below the
+    // header bar (`持有从者` / `筛选` / `等级顺序`), stop at the last card's
+    // right edge (not the scrollbar/right panel), and include the partially
+    // visible bottom row.
+    let region = crate::servant_enhancement::runner::SERVANT_LIST_REGION;
+    assert!((0.04..=0.06).contains(&region.x), "left edge: {region:?}");
+    assert!(
+        (region.x + region.w - 0.785).abs() < 0.02,
+        "right edge: {region:?}"
+    );
+    assert!((0.20..=0.24).contains(&region.y), "top edge: {region:?}");
+    assert!(region.y + region.h >= 0.99, "bottom edge: {region:?}");
+}

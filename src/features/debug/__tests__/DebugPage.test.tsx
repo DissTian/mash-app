@@ -571,6 +571,7 @@ describe("DebugPage", () => {
         attempts: 1,
         matchMethod: "direct",
         directSearchThreshold: 0.6,
+        gridSkipped: true,
         failReason: "no_anchors",
       },
     };
@@ -595,7 +596,9 @@ describe("DebugPage", () => {
       useLiveFrame: true,
       directSearchThreshold: 0.6,
     });
-    expect(await screen.findByText(/method direct/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/method direct（国服已跳过网格，直接搜索头像）/),
+    ).toBeInTheDocument();
     expect(screen.getByText(/模板缩放: 167 × 167/)).toBeInTheDocument();
     expect(screen.getByText(/· 12\.5 ms/)).toBeInTheDocument();
   });

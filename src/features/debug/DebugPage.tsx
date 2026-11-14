@@ -2621,9 +2621,11 @@ export function DebugPage({
                   </Text>
                   <Text size="1" color="gray">
                     method {enhancementServantResult.diagnostics.matchMethod ?? "grid"}
-                    {enhancementServantResult.diagnostics.gridFailReason
-                      ? `（网格失败：${enhancementServantResult.diagnostics.gridFailReason}）`
-                      : ""}
+                    {enhancementServantResult.diagnostics.gridSkipped
+                      ? "（国服已跳过网格，直接搜索头像）"
+                      : enhancementServantResult.diagnostics.gridFailReason
+                        ? `（网格失败：${enhancementServantResult.diagnostics.gridFailReason}）`
+                        : ""}
                     {" · "}直接搜索阈值{" "}
                     {enhancementServantResult.diagnostics.directSearchThreshold?.toFixed(2) ??
                       "0.85"}

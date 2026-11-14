@@ -303,6 +303,12 @@ pub struct ServantGridDiagnostics {
     /// Debug-only phase breakdown (`gridMs`/`templateMs`/`matchMs`/...).
     #[serde(default)]
     pub timings: Option<serde_json::Value>,
+    /// True when the caller asked the sidecar to skip the grid anchor scan.
+    #[serde(default)]
+    pub grid_skipped: bool,
+    /// True when the sidecar refined a half-scale search at full resolution.
+    #[serde(default)]
+    pub pyramid: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

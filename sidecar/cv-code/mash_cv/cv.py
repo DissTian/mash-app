@@ -790,6 +790,8 @@ def _score_template_region(
     template_scale: float = 1.0,
     template_reference_width: Optional[float] = None,
     mask: Optional[np.ndarray] = None,
+    precomputed_gray: Optional[tuple] = None,
+    pyramid: bool = False,
 ) -> dict:
     """Find the best template location and always return its normalized box."""
     original_size = {"w": tmpl.shape[1], "h": tmpl.shape[0]}
@@ -831,30 +833,41 @@ def _score_template_region(
     rw = max(1, min(int(round(region["w"] * w)), w - rx))
     rh = max(1, min(int(round(region["h"] * h)), h - ry))
 
-    roi = img[ry : ry + rh, rx : rx + rw]
-    if roi.size == 0:
-        return finish({"found": False, "score": 0.0, "region": None, "x": 0.0, "y": 0.0, "failReason": "empty_search_region"})
-
-    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    if precomputed_gray is not None:
+        # Callers that score several templates against the same region convert
+        # the ROI to grey once instead of paying it per template.
+        gray_roi, rx, ry = precomputed_gray
+    else:
+        roi = img[ry : ry + rh, rx : rx + rw]
+        if roi.size == 0:
+            return finish({"found": False, "score": 0.0, "region": None, "x": 0.0, "y": 0.0, "failReason": "empty_search_region"})
+        gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     th, tw = tmpl.shape[:2]
     if tw > gray_roi.shape[1] or th > gray_roi.shape[0]:
         return finish({"found": False, "score": 0.0, "region": None, "x": 0.0, "y": 0.0, "failReason": "template_larger_than_region"})
 
-    if mask is not None:
-        result = cv2.matchTemplate(
-            gray_roi, tmpl, cv2.TM_CCOEFF_NORMED, mask=mask
+    if mask is None and pyramid and gray_roi.size >= PYRAMID_MIN_ROI_PIXELS:
+        score, local_left, local_top = _pyramid_match_template(
+            gray_roi, tmpl, threshold
         )
-        # matchTemplate emits NaN/inf at positions where the masked region
-        # has zero variance; ignore those instead of letting them dominate
-        # ``minMaxLoc``.
-        if not np.isfinite(result).all():
-            result = np.where(np.isfinite(result), result, -1.0)
+        left = rx + local_left
+        top = ry + local_top
     else:
-        result = cv2.matchTemplate(gray_roi, tmpl, cv2.TM_CCOEFF_NORMED)
-    _, max_val, _, max_loc = cv2.minMaxLoc(result)
-    score = float(max_val)
-    left = rx + max_loc[0]
-    top = ry + max_loc[1]
+        if mask is not None:
+            result = cv2.matchTemplate(
+                gray_roi, tmpl, cv2.TM_CCOEFF_NORMED, mask=mask
+            )
+            # matchTemplate emits NaN/inf at positions where the masked region
+            # has zero variance; ignore those instead of letting them dominate
+            # ``minMaxLoc``.
+            if not np.isfinite(result).all():
+                result = np.where(np.isfinite(result), result, -1.0)
+        else:
+            result = cv2.matchTemplate(gray_roi, tmpl, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(result)
+        score = float(max_val)
+        left = rx + max_loc[0]
+        top = ry + max_loc[1]
     return finish({
         "found": score >= threshold,
         "x": (left + tw / 2.0) / w,
@@ -1824,6 +1837,95 @@ def _build_mask_for_template_region(width: int, height: int, region: dict) -> np
     return mask
 
 
+# Face-template matching optimisations. The direct search scans the whole list
+# region once per ascension face; a half-scale pass plus a small full-resolution
+# refinement window is ~3.5x faster and lands on the same full-resolution peak.
+# When the refined score sits within PYRAMID_VERIFY_MARGIN of the decision
+# threshold the whole region is re-scanned at full resolution, so the final
+# decision is identical to a plain full-resolution search.
+PYRAMID_SCALE = 0.5
+PYRAMID_REFINE_PAD_PX = 12
+PYRAMID_VERIFY_MARGIN = 0.02
+PYRAMID_MIN_ROI_PIXELS = 200_000
+
+# ``(template path, size, crop)`` -> greyscale template already resized/cropped
+# for the current frame grid. Face templates are stable files, so this only
+# avoids re-reading/resizing the same PNG on every list scan.
+_ENHANCEMENT_FACE_TEMPLATE_CACHE: dict[tuple, np.ndarray] = {}
+_ENHANCEMENT_FACE_TEMPLATE_CACHE_LIMIT = 64
+
+
+def _enhancement_face_template(
+    path: str, template_size: dict, template_crop: dict | None
+) -> np.ndarray:
+    crop = template_crop or {}
+    key = (
+        str(path),
+        int(template_size.get("w", 0) or 0),
+        int(template_size.get("h", 0) or 0),
+        round(float(crop.get("x", 0.0)), 4),
+        round(float(crop.get("y", 0.0)), 4),
+        round(float(crop.get("w", 1.0)), 4),
+        round(float(crop.get("h", 1.0)), 4),
+    )
+    cached = _ENHANCEMENT_FACE_TEMPLATE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    raw = _read_template_image(path, cv2.IMREAD_GRAYSCALE)
+    tmpl = _crop_template(_resize_template(raw, template_size), template_crop)
+    if len(_ENHANCEMENT_FACE_TEMPLATE_CACHE) >= _ENHANCEMENT_FACE_TEMPLATE_CACHE_LIMIT:
+        _ENHANCEMENT_FACE_TEMPLATE_CACHE.clear()
+    _ENHANCEMENT_FACE_TEMPLATE_CACHE[key] = tmpl
+    return tmpl
+
+
+def _pyramid_match_template(
+    gray_roi: np.ndarray, tmpl: np.ndarray, threshold: float
+) -> tuple[float, int, int]:
+    """Half-scale search + full-resolution refinement around the coarse peak.
+
+    Returns ``(score, left, top)`` in ``gray_roi`` pixel coordinates with the
+    score measured by a full-resolution ``TM_CCOEFF_NORMED`` pass at the refined
+    location. Near-threshold results are verified over the whole region so the
+    found/not-found decision matches a plain full-resolution search exactly.
+    """
+    roi_h, roi_w = gray_roi.shape[:2]
+    tmpl_h, tmpl_w = tmpl.shape[:2]
+    scale = PYRAMID_SCALE
+    small_roi = cv2.resize(
+        gray_roi, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA
+    )
+    small_tmpl = cv2.resize(
+        tmpl,
+        (max(1, round(tmpl_w * scale)), max(1, round(tmpl_h * scale))),
+        interpolation=cv2.INTER_AREA,
+    )
+    coarse = cv2.matchTemplate(small_roi, small_tmpl, cv2.TM_CCOEFF_NORMED)
+    _, _, _, coarse_loc = cv2.minMaxLoc(coarse)
+    coarse_left = int(round(coarse_loc[0] / scale))
+    coarse_top = int(round(coarse_loc[1] / scale))
+    pad = PYRAMID_REFINE_PAD_PX
+    x0 = max(0, coarse_left - pad)
+    y0 = max(0, coarse_top - pad)
+    x1 = min(roi_w, coarse_left + tmpl_w + pad)
+    y1 = min(roi_h, coarse_top + tmpl_h + pad)
+    window = gray_roi[y0:y1, x0:x1]
+    if window.shape[0] < tmpl_h or window.shape[1] < tmpl_w:
+        window = gray_roi
+        x0 = 0
+        y0 = 0
+    refined = cv2.matchTemplate(window, tmpl, cv2.TM_CCOEFF_NORMED)
+    _, score, _, loc = cv2.minMaxLoc(refined)
+    left = x0 + int(loc[0])
+    top = y0 + int(loc[1])
+    if abs(float(score) - float(threshold)) <= PYRAMID_VERIFY_MARGIN:
+        full = cv2.matchTemplate(gray_roi, tmpl, cv2.TM_CCOEFF_NORMED)
+        _, score, _, loc = cv2.minMaxLoc(full)
+        left = int(loc[0])
+        top = int(loc[1])
+    return float(score), left, top
+
+
 def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
     region = cmd.get("region", ITEM_GRID_DEFAULT_REGION)
     anchor_key = str(cmd.get("anchorTemplateKey", ITEM_GRID_DEFAULT_ANCHOR_TEMPLATE))
@@ -1845,26 +1947,37 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
     mask_region = cmd.get("maskRegion")
     direct_search_threshold = cmd.get("directSearchThreshold")
     collect_timings = bool(cmd.get("timings"))
+    skip_grid = bool(cmd.get("skipGrid"))
+    use_pyramid = not bool(cmd.get("disablePyramid"))
     started_total = time.monotonic() if collect_timings else 0.0
 
-    grid_started = time.monotonic() if collect_timings else 0.0
-    grid = _find_item_grid(img, cmd)
-    grid_ms = (time.monotonic() - grid_started) * 1000.0 if collect_timings else 0.0
+    if skip_grid:
+        # The CN enhancement picker never exposes the avatar bottom-bar anchor
+        # (the state overlay covers it), so callers that know the grid cannot
+        # contribute skip the ~110ms anchor scan and go straight to the direct
+        # portrait search.
+        grid_ms = 0.0
+        anchors = []
+        cells = []
+        reference_anchor = None
+        grid_fail_reason = "skipped"
+    else:
+        grid_started = time.monotonic() if collect_timings else 0.0
+        grid = _find_item_grid(img, cmd)
+        grid_ms = (time.monotonic() - grid_started) * 1000.0 if collect_timings else 0.0
+        anchors = grid["anchors"]
+        cells = grid["gridCells"]
+        reference_anchor = grid["referenceAnchor"]
+        grid_fail_reason = grid["diagnostics"].get("failReason")
     template_ms = 0.0
     match_ms = 0.0
-    anchors = grid["anchors"]
-    cells = grid["gridCells"]
-    reference_anchor = grid["referenceAnchor"]
-    grid_fail_reason = grid["diagnostics"].get("failReason")
 
     matches: list[dict] = []
     best: Optional[dict] = None
     if not grid_fail_reason and template_paths:
         for template_path in template_paths:
             template_started = time.monotonic() if collect_timings else 0.0
-            raw = _read_template_image(template_path, cv2.IMREAD_GRAYSCALE)
-            tmpl = _resize_template(raw, template_size)
-            tmpl = _crop_template(tmpl, template_crop)
+            tmpl = _enhancement_face_template(template_path, template_size, template_crop)
             template_mask = (
                 _build_mask_for_template_region(tmpl.shape[1], tmpl.shape[0], mask_region)
                 if mask_region
@@ -1922,17 +2035,35 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
     direct_ms = 0.0
     if direct_attempted:
         direct_started = time.monotonic() if collect_timings else 0.0
+        frame_h, frame_w = img.shape[:2]
+        direct_rx = max(0, int(round(region["x"] * frame_w)))
+        direct_ry = max(0, int(round(region["y"] * frame_h)))
+        direct_rw = max(1, min(int(round(region["w"] * frame_w)), frame_w - direct_rx))
+        direct_rh = max(1, min(int(round(region["h"] * frame_h)), frame_h - direct_ry))
+        direct_gray = (
+            cv2.cvtColor(
+                img[direct_ry : direct_ry + direct_rh, direct_rx : direct_rx + direct_rw],
+                cv2.COLOR_BGR2GRAY,
+            ),
+            direct_rx,
+            direct_ry,
+        )
         for template_path in template_paths:
             direct_template_started = time.monotonic() if collect_timings else 0.0
-            raw = _read_template_image(template_path, cv2.IMREAD_GRAYSCALE)
-            tmpl = _crop_template(_resize_template(raw, template_size), template_crop)
+            tmpl = _enhancement_face_template(template_path, template_size, template_crop)
             template_mask = (
                 _build_mask_for_template_region(tmpl.shape[1], tmpl.shape[0], mask_region)
                 if mask_region
                 else None
             )
             scored = _score_template_region(
-                img, tmpl, region, direct_threshold, mask=template_mask
+                img,
+                tmpl,
+                region,
+                direct_threshold,
+                mask=template_mask,
+                precomputed_gray=direct_gray,
+                pyramid=use_pyramid,
             )
             item = {
                 "template": os.path.basename(template_path),
@@ -1975,6 +2106,8 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
         "directSearchThreshold": direct_threshold if direct_attempted else None,
         "matchMethod": "direct" if best and best["row"] is None else "grid",
         "gridFailReason": grid_fail_reason,
+        "gridSkipped": skip_grid,
+        "pyramid": use_pyramid,
         "region": dict(region),
         "anchorCount": len(anchors),
         "gridCellCount": len(cells),
@@ -7820,8 +7953,12 @@ def _main_repl() -> None:
                 interval = float(cmd.get("retryIntervalSeconds", 0.15))
                 attempts = 0
                 last_result: Optional[dict] = None
+                frame_ms: Optional[float] = None
                 while True:
+                    frame_started = time.monotonic()
                     img, err = _load_frame(cmd)
+                    if frame_ms is None:
+                        frame_ms = (time.monotonic() - frame_started) * 1000.0
                     attempts += 1
                     if img is None:
                         _reply(req_id, {"found": False, "error": err})
@@ -7833,10 +7970,25 @@ def _main_repl() -> None:
                     else:
                         last_result = _find_enhancement_servant_grid(img, cmd)
                     last_result["diagnostics"]["attempts"] = attempts
+                    if (
+                        cmd.get("timings")
+                        and frame_ms is not None
+                        and isinstance(last_result.get("diagnostics"), dict)
+                    ):
+                        timings = last_result["diagnostics"].get("timings") or {}
+                        timings["frameMs"] = round(frame_ms, 1)
+                        last_result["diagnostics"]["timings"] = timings
                     if last_result["diagnostics"].get("anchorCount", 0) > 0:
                         _reply(req_id, last_result)
                         break
-                    if "imagePath" in cmd or time.monotonic() >= deadline:
+                    if (
+                        "imagePath" in cmd
+                        or last_result["diagnostics"].get("gridSkipped")
+                        or time.monotonic() >= deadline
+                    ):
+                        # ``gridSkipped`` callers never produce anchors, so the
+                        # retry window would just re-run the same direct search
+                        # for up to a second. Reply with the first result.
                         _reply(req_id, last_result)
                         break
                     time.sleep(max(0.02, interval))

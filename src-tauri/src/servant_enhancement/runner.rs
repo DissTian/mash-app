@@ -53,11 +53,15 @@ const BUTTON_LUMA_REGION: NormRect = NormRect {
     w: 0.035,
     h: 0.06,
 };
+/// CN servant-select list: the card grid only. The header row above the first
+/// card (`持有从者` / `筛选` / `等级顺序`) and the scrollbar/right panel are
+/// excluded, while the partially visible bottom row is included. Calibrated
+/// from a live capture against the debug overlay's search box.
 pub(crate) const SERVANT_LIST_REGION: NormRect = NormRect {
-    x: 0.05,
-    y: 0.18,
-    w: 0.78,
-    h: 0.76,
+    x: 0.045,
+    y: 0.22,
+    w: 0.74,
+    h: 0.78,
 };
 pub(crate) const SERVANT_FACE_MATCH_CROP: NormRect = NormRect {
     x: 0.195,
@@ -694,6 +698,7 @@ impl ServantEnhancementRunner {
                 None,
                 None,
                 false,
+                true,
             );
             match corner {
                 Ok(result) if result.found => {
@@ -747,6 +752,7 @@ impl ServantEnhancementRunner {
                 None,
                 None,
                 false,
+                true,
             )
             .map_err(|err| format!("头像匹配失败: {err}"))?;
         self.emit(

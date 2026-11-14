@@ -30,6 +30,7 @@ impl SidecarClient {
         mask_region: Option<NormRect>,
         direct_search_threshold: Option<f64>,
         collect_timings: bool,
+        skip_grid: bool,
     ) -> Result<FindEnhancementServantGridResult, CvError> {
         let mut req = request(
             SidecarCommand::FindEnhancementServantGrid,
@@ -82,6 +83,11 @@ impl SidecarClient {
         if collect_timings {
             if let Some(obj) = req.as_object_mut() {
                 obj.insert("timings".into(), serde_json::json!(true));
+            }
+        }
+        if skip_grid {
+            if let Some(obj) = req.as_object_mut() {
+                obj.insert("skipGrid".into(), serde_json::json!(true));
             }
         }
         Self::add_image_path(&mut req, image_path);

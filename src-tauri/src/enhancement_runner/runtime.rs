@@ -513,6 +513,7 @@ impl EnhancementRunner {
                 None,
                 None,
                 false,
+                false,
             )
             .recoverable()?
         {

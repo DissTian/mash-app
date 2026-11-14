@@ -193,6 +193,10 @@ export interface EnhancementServantDiagnosticsDto {
   directSearchAttempted?: boolean;
   directSearchThreshold?: number | null;
   gridFailReason?: string | null;
+  /** CN runs skip the grid anchor scan (it never matches this picker). */
+  gridSkipped?: boolean;
+  /** Half-scale search + full-resolution refinement is active. */
+  pyramid?: boolean;
   /** Debug-only phase breakdown: gridMs/templateMs/matchMs/directSearchMs/totalMs. */
   timings?: Record<string, number> | null;
 }

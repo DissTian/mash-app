@@ -117,6 +117,7 @@ pub fn debug_find_enhancement_servant(
         None,
         direct_search_threshold,
         true,
+        server == Server::Cn,
     )?;
     let template_size = result
         .template_size

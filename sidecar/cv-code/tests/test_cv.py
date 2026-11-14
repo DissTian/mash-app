@@ -2561,6 +2561,41 @@ class TestCnServantListFallback:
         assert empty["found"] is False
         assert empty["diagnostics"]["failReason"] == "no_anchors"
 
+    def test_skip_grid_goes_straight_to_the_direct_portrait_search(self):
+        image = self._image(1920)
+        command = self._command(1920, skipGrid=True)
+
+        result = mash_cv._find_enhancement_servant_grid(image, command)
+
+        assert result["diagnostics"]["gridSkipped"] is True
+        assert result["diagnostics"]["gridFailReason"] == "skipped"
+        assert result["anchors"] == []
+        assert result["gridCells"] == []
+        assert result["diagnostics"]["matchMethod"] == "direct"
+        assert result["found"] is True, result["diagnostics"]
+        assert result["score"] > 0.95
+        assert result["x"] == pytest.approx(0.632, abs=0.003)
+        assert result["y"] == pytest.approx(0.859, abs=0.003)
+
+    def test_pyramid_search_keeps_the_full_resolution_decision(self):
+        image = self._image(1920)
+        fast = mash_cv._find_enhancement_servant_grid(
+            image, self._command(1920, skipGrid=True, timings=True)
+        )
+        full = mash_cv._find_enhancement_servant_grid(
+            image,
+            self._command(1920, skipGrid=True, disablePyramid=True, timings=True),
+        )
+
+        assert fast["found"] == full["found"]
+        assert fast["score"] == pytest.approx(full["score"], abs=1e-6)
+        assert fast["x"] == pytest.approx(full["x"], abs=1e-9)
+        assert fast["y"] == pytest.approx(full["y"], abs=1e-9)
+        assert (
+            full["diagnostics"]["timings"]["directSearchMs"]
+            > fast["diagnostics"]["timings"]["directSearchMs"]
+        )
+
     def test_direct_search_respects_list_region_and_requested_threshold(self):
         image = self._image(1920)
         outside = self._command(1920, region={"x": 0.05, "y": 0.18, "w": 0.78, "h": 0.60})
