@@ -432,6 +432,16 @@ impl Runner {
             self.config.prefer_higher_critical_chance,
             self.current_attack_is_critical(),
         );
+        // Reading the per-card crit digits costs ~15% of the recognition
+        // call, so only request it when something actually consumes the
+        // values: crit logging, crit-aware picking, or an advanced
+        // command-card condition with a minimum crit chance.
+        let read_crit_digits = recognize_critical_chance
+            || (self.advanced_mode
+                && self
+                    .advanced_scenes
+                    .get(self.battle.current_scene_index)
+                    .is_some_and(advanced_scene_requires_crit_chance));
         let recognition_settle_delay =
             command_card_recognition_settle_delay(recognize_critical_chance);
         if !recognition_settle_delay.is_zero() {
@@ -472,7 +482,13 @@ impl Runner {
                     self.battle.command_card_owner_fallback_to_full_party;
                 let cards = match self
                     .sidecar()
-                    .find_command_cards(None, None, &candidate_ids, assets_dir.as_deref())
+                    .find_command_cards(
+                        None,
+                        None,
+                        &candidate_ids,
+                        assets_dir.as_deref(),
+                        read_crit_digits,
+                    )
                     .recoverable()?
                 {
                     Ok(c) => c,
@@ -550,7 +566,7 @@ impl Runner {
             let cards = loop {
                 let cards = match self
                     .sidecar()
-                    .find_command_cards(None, None, &[], None)
+                    .find_command_cards(None, None, &[], None, read_crit_digits)
                     .recoverable()?
                 {
                     Ok(c) => c,

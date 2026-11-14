@@ -161,6 +161,25 @@ pub(crate) fn normal_scenes_need_command_card_recognition(scenes: &[BattleScene]
     })
 }
 
+/// Whether one advanced scene has a command-card condition that can only be
+/// evaluated with a crit percentage. Those conditions make the (expensive)
+/// per-card crit read mandatory even when crit logging itself is disabled.
+pub(crate) fn advanced_scene_requires_crit_chance(scene: &AdvancedBattleScene) -> bool {
+    let scene_conditions_need_crit = scene
+        .command_conditions
+        .iter()
+        .any(|condition| condition.min_crit_chance.is_some());
+    let rule_conditions_need_crit = scene.rules.iter().any(|rule| {
+        rule.command_condition_groups.iter().any(|group| {
+            group
+                .cards
+                .iter()
+                .any(|condition| condition.min_crit_chance.is_some())
+        })
+    });
+    scene_conditions_need_crit || rule_conditions_need_crit
+}
+
 pub(crate) fn normal_turn_for_current_scene(
     scenes: &[BattleScene],
     current_scene_index: usize,

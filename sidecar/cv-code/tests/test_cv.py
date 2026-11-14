@@ -3313,6 +3313,133 @@ class TestFindCommandCards:
         expected_h2 = max(1, int(round(80 * _cv_module.FACE_CROP_REL_H)))
         assert c.shape == (expected_h2, 80)
 
+    def test_servant_identification_screens_candidates_then_verifies(
+        self, monkeypatch, tmp_path
+    ):
+        """Candidate faces are screened at the coarse scale and only the
+        shortlist is re-scored at full resolution.
+
+        Pins both halves of the optimisation: the coarse screen must still
+        put the real portrait first, and the full-resolution verification
+        must still reject a portrait that isn't on screen.
+        """
+        from mash_cv import cv as _cv_module
+
+        self._load()
+        width, height = 1920, 1080
+        img = _make_bgr_image(width, height, bgr=(24, 24, 24))
+        slot_px = _cv_module._slot_to_pixels(
+            _cv_module.DEFAULT_COMMAND_CARD_SLOTS[0], width, height
+        )
+        fx, fy, _fw, _fh = _cv_module._face_search_bbox(slot_px, width, height)
+        target_w = int(round(slot_px[2] * _cv_module.FACE_RESIZE_CARD_REL))
+
+        rng = np.random.default_rng(7)
+        portrait = rng.integers(0, 255, (160, 120), dtype=np.uint8)
+        crop = portrait[: portrait.shape[0] // 2, :]
+        patch = cv2.resize(
+            crop,
+            (target_w, max(1, int(round(target_w * crop.shape[0] / crop.shape[1])))),
+            interpolation=cv2.INTER_AREA,
+        )
+        img[fy + 6 : fy + 6 + patch.shape[0], fx + 4 : fx + 4 + patch.shape[1]] = (
+            cv2.cvtColor(patch, cv2.COLOR_GRAY2BGR)
+        )
+
+        on_screen_id, off_screen_id = 12345, 54321
+        for sid, art in ((on_screen_id, portrait), (off_screen_id, rng.integers(0, 255, (160, 120), dtype=np.uint8))):
+            folder = tmp_path / str(sid)
+            folder.mkdir()
+            cv2.imwrite(str(folder / "card_servant_1.png"), art)
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        seen_target_widths = []
+        original = _cv_module._score_face_template
+
+        def spy(search_roi, path, candidate_w, crop_y0, crop_y1):
+            seen_target_widths.append(candidate_w)
+            return original(search_roi, path, candidate_w, crop_y0, crop_y1)
+
+        monkeypatch.setattr(_cv_module, "_score_face_template", spy)
+
+        ident = _cv_module._identify_servant_in_slot(
+            gray, slot_px, [off_screen_id, on_screen_id], str(tmp_path), 0.5
+        )
+
+        assert ident is not None
+        assert ident["servantId"] == on_screen_id
+        assert ident["ascension"] == 1
+        assert ident["faceScore"] > 0.9
+        # Coarse screen at half the final width, then the full-resolution
+        # verification of the shortlist.
+        coarse_w = int(
+            round(slot_px[2] * _cv_module.FACE_RESIZE_CARD_REL * _cv_module.FACE_COARSE_SCALE)
+        )
+        assert min(seen_target_widths) == coarse_w
+        assert max(seen_target_widths) == target_w
+
+        # A candidate list without the on-screen servant must not produce a
+        # match even though the coarse screen always returns some ranking.
+        assert (
+            _cv_module._identify_servant_in_slot(
+                gray, slot_px, [off_screen_id], str(tmp_path), 0.5
+            )
+            is None
+        )
+
+    @pytest.mark.skipif(
+        not os.path.isdir(_PROD_CN_TEMPLATES_DIR),
+        reason="production CN templates dir not available",
+    )
+    def test_command_card_crit_reads_are_optional(self, monkeypatch):
+        """Callers that don't consume crit chances must not pay for the
+        per-digit read, while the digit ROIs stay available for overlays."""
+        from mash_cv import cv as _cv_module
+
+        self._load()
+        assert mash_cv._load_templates(_PROD_CN_TEMPLATES_DIR, append=True)["ok"] is True
+        img = cv2.imread(
+            os.path.join(_TEST_SCREENSHOTS_DIR, "battle_command_cn_crit.jpg")
+        )
+        assert img is not None, "battle_command_cn_crit.jpg fixture missing"
+
+        calls = []
+        original = _cv_module._read_crit_digits
+
+        def spy(*args, **kwargs):
+            calls.append(1)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(_cv_module, "_read_crit_digits", spy)
+
+        result = mash_cv._find_command_cards(
+            img,
+            list(mash_cv.DEFAULT_COMMAND_CARD_SLOTS),
+            [],
+            None,
+            0.5,
+            False,
+        )
+
+        assert calls == []
+        for card in result["cards"]:
+            assert "critChance" not in card
+            assert "critDigitReads" not in card
+            assert len(card["critDigitRegions"]) == 3
+
+        # The default keeps reading the digits.
+        result = mash_cv._find_command_cards(
+            img, list(mash_cv.DEFAULT_COMMAND_CARD_SLOTS), [], None
+        )
+        assert calls
+        assert [card.get("critChance") for card in result["cards"]] == [
+            20,
+            70,
+            70,
+            30,
+            60,
+        ]
+
 
 class TestFindNoblePhantasms:
     """Exercise the NP readiness detector.

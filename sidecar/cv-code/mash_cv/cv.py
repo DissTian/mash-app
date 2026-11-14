@@ -323,6 +323,16 @@ FACE_CROP_REL_H = 0.5
 FACE_FALLBACK_CROP_REL_Y0 = 0.2
 FACE_FALLBACK_CROP_REL_Y1 = 0.5
 
+# Masked TM_CCOEFF_NORMED on a full-size card portrait costs ~9ms per
+# candidate, and a battlefield servant folder holds every ascension *and*
+# costume portrait — a three-servant front line easily reaches 20-30
+# candidates per card. Screen them at this fraction of the final size first
+# and only re-score the best few candidates at full resolution: the coarse
+# ranking matches the full-resolution ranking on every attack-screen
+# fixture (top-1 identical), while the pass costs ~40% of the original.
+FACE_COARSE_SCALE = 0.5
+FACE_VERIFY_CANDIDATES = 3
+
 
 # ---------------------------------------------------------------------------
 # Noble-Phantasm (NP) card layout
@@ -3283,17 +3293,21 @@ def _read_bond_level_up(img: np.ndarray, debug: bool = False) -> dict:
 def _load_crit_digit_templates(
     prefix: str, suffix: str
 ) -> list[tuple[int, np.ndarray, Optional[np.ndarray]]]:
-    """Load all 10 required crit-digit templates with their alpha masks."""
+    """Return all 10 required crit-digit templates with their alpha masks.
+
+    The masks come from ``template_masks`` (populated once by
+    ``_load_templates``) instead of re-reading every PNG from disk. Callers
+    run this per card, so the old disk round-trip dominated the crit read on
+    an otherwise hot path.
+    """
     refs: list[tuple[int, np.ndarray, Optional[np.ndarray]]] = []
     for digit in range(10):
         key = _digit_template_key(digit, prefix, suffix)
         tmpl = _get_template(key)
+        raw_mask = template_masks.get(key)
         mask: Optional[np.ndarray] = None
-        path = _template_path_for_key(key)
-        if path:
-            raw = _read_template_image(path, cv2.IMREAD_UNCHANGED)
-            if raw.ndim == 3 and raw.shape[2] == 4:
-                mask = (raw[:, :, 3] > 32).astype(np.uint8) * 255
+        if raw_mask is not None:
+            mask = (raw_mask > 32).astype(np.uint8) * 255
         refs.append((digit, tmpl, mask))
     return refs
 
@@ -4253,6 +4267,40 @@ def _resize_command_card_support_template(
     return cv2.resize(tmpl, (scaled_w, scaled_h), interpolation=interpolation)
 
 
+def _scaled_face_search_roi(roi: np.ndarray, scale: float) -> np.ndarray:
+    """Downscale the face-search crop for a coarse screening pass."""
+    if scale == 1.0:
+        return roi
+    return cv2.resize(
+        roi,
+        (
+            max(1, int(round(roi.shape[1] * scale))),
+            max(1, int(round(roi.shape[0] * scale))),
+        ),
+        interpolation=cv2.INTER_AREA,
+    )
+
+
+def _score_face_template(
+    search_roi: np.ndarray,
+    path: str,
+    target_w: int,
+    crop_y0_rel: float,
+    crop_y1_rel: float,
+) -> Optional[float]:
+    """Masked template score for one candidate portrait, or ``None`` when the
+    portrait cannot fit the search crop."""
+    if target_w < 8:
+        return None
+    tmpl, mask = _load_face_template_pair(path, target_w, crop_y0_rel, crop_y1_rel)
+    if tmpl.shape[0] > search_roi.shape[0] or tmpl.shape[1] > search_roi.shape[1]:
+        return None
+    result = cv2.matchTemplate(search_roi, tmpl, cv2.TM_CCOEFF_NORMED, mask=mask)
+    _, max_val, _, _ = cv2.minMaxLoc(result)
+    score = float(max_val)
+    return score if np.isfinite(score) else None
+
+
 def _identify_servant_in_slot(
     gray_img: np.ndarray,
     slot_px: tuple[int, int, int, int],
@@ -4260,9 +4308,15 @@ def _identify_servant_in_slot(
     assets_dir: str,
     threshold: float,
 ) -> Optional[dict]:
-    """Match every candidate face PNG inside the slot's face-search bbox
-    and return the best ``{"servantId":..,"ascension":..,"faceScore":..}``
-    above threshold, or ``None`` if nothing matched."""
+    """Identify the servant occupying one command-card slot.
+
+    Every candidate face PNG inside the slot's face-search bbox is screened
+    at :data:`FACE_COARSE_SCALE` and only the best
+    :data:`FACE_VERIFY_CANDIDATES` are re-scored at full resolution, which
+    keeps the ranking while removing most of the masked-match cost. Returns
+    the best ``{"servantId":..,"ascension":..,"faceScore":..}`` above
+    ``threshold``, or ``None`` if nothing matched.
+    """
     fx, fy, fw, fh = _face_search_bbox(slot_px, gray_img.shape[1], gray_img.shape[0])
     roi = gray_img[fy : fy + fh, fx : fx + fw]
     if roi.size == 0:
@@ -4273,30 +4327,36 @@ def _identify_servant_in_slot(
         crop_y0_rel: float,
         crop_y1_rel: float,
     ) -> Optional[dict]:
-        target_w = int(round(slot_px[2] * resize_rel))
-        if target_w < 16:
-            return None
-
-        best: Optional[dict] = None
+        coarse_roi = _scaled_face_search_roi(roi, FACE_COARSE_SCALE)
+        coarse_target_w = int(round(slot_px[2] * resize_rel * FACE_COARSE_SCALE))
+        screened: list[tuple[float, int, str]] = []
         for sid in servant_ids:
             for path in _list_servant_face_files(assets_dir, sid):
-                pair = _load_face_template_pair(path, target_w, crop_y0_rel, crop_y1_rel)
-                tmpl, mask = pair
-                if tmpl.shape[0] > roi.shape[0] or tmpl.shape[1] > roi.shape[1]:
+                score = _score_face_template(
+                    coarse_roi, path, coarse_target_w, crop_y0_rel, crop_y1_rel
+                )
+                if score is None:
                     continue
-                res = cv2.matchTemplate(roi, tmpl, cv2.TM_CCOEFF_NORMED, mask=mask)
-                _, mv, _, _ = cv2.minMaxLoc(res)
-                score = float(mv)
-                if not np.isfinite(score):
-                    continue
-                if best is None or score > best["faceScore"]:
-                    ascension = _ascension_from_filename(os.path.basename(path))
-                    best = {
-                        "servantId": int(sid),
-                        "ascension": ascension,
-                        "faceScore": score,
-                        "facePath": path,
-                    }
+                screened.append((score, int(sid), path))
+        if not screened:
+            return None
+        screened.sort(key=lambda candidate: candidate[0], reverse=True)
+
+        verify_target_w = int(round(slot_px[2] * resize_rel))
+        best: Optional[dict] = None
+        for _, sid, path in screened[:FACE_VERIFY_CANDIDATES]:
+            score = _score_face_template(
+                roi, path, verify_target_w, crop_y0_rel, crop_y1_rel
+            )
+            if score is None:
+                continue
+            if best is None or score > best["faceScore"]:
+                best = {
+                    "servantId": sid,
+                    "ascension": _ascension_from_filename(os.path.basename(path)),
+                    "faceScore": score,
+                    "facePath": path,
+                }
         return best
 
     best = match_candidate_templates(FACE_RESIZE_CARD_REL, 0.0, FACE_CROP_REL_H)
@@ -4331,6 +4391,7 @@ def _find_command_cards(
     servant_ids: list[int],
     assets_dir: Optional[str],
     face_threshold: float = 0.5,
+    read_crit_digits: bool = True,
 ) -> dict:
     """Identify the suit and (optionally) servant occupying each fixed
     command-card slot.
@@ -4343,6 +4404,12 @@ def _find_command_cards(
     2. Crop the upper portion of the slot and template-match every
        candidate face PNG (``card_servant_*.png``) under
        ``{assets_dir}/{servant_id}/`` to identify the servant.
+
+    ``read_crit_digits`` gates the per-digit crit-percentage read, which
+    costs ~15% of the whole call. Callers that only need owners, suits, tap
+    points and stun state (the battle runner unless crit logging or a
+    crit-chance condition is active) pass ``False``; the per-digit ROIs are
+    still reported so the debug overlay keeps rendering.
 
     Returns one record per slot regardless of match quality so callers can
     visualize empty slots / debug low scores. ``servantId`` is only set
@@ -4424,10 +4491,11 @@ def _find_command_cards(
             for digit_rel in COMMAND_CARD_CRIT_DIGIT_REGIONS
         ]
         record["critDigitRegions"] = crit_digit_regions
-        crit_value, crit_reads = _read_crit_digits(img, crit_digit_regions)
-        record["critDigitReads"] = crit_reads
-        if crit_value is not None:
-            record["critChance"] = int(crit_value)
+        if read_crit_digits:
+            crit_value, crit_reads = _read_crit_digits(img, crit_digit_regions)
+            record["critDigitReads"] = crit_reads
+            if crit_value is not None:
+                record["critChance"] = int(crit_value)
 
         support_tmpl = _get_template(COMMAND_CARD_SUPPORT_ICON_TEMPLATE)
         if support_tmpl is not None:
@@ -7934,6 +8002,7 @@ def _main_repl() -> None:
                             [int(s) for s in cmd.get("servantIds", []) if s is not None],
                             cmd.get("assetsDir"),
                             float(cmd.get("faceThreshold", 0.5)),
+                            bool(cmd.get("readCritDigits", True)),
                         ),
                     )
             elif action == "find_noble_phantasms":

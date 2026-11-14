@@ -1337,6 +1337,42 @@ fn grand_startup_keeps_attack_precheck_for_backline_auto_order_change() {
 }
 
 #[test]
+fn advanced_scene_requires_crit_chance_only_for_min_crit_conditions() {
+    let mut scene = empty_advanced_scene();
+    assert!(!advanced_scene_requires_crit_chance(&scene));
+
+    scene.command_conditions = vec![AdvancedCommandCardCondition {
+        slot: 0,
+        servant: "servant_1".into(),
+        suit: "buster".into(),
+        min_crit_chance: None,
+        member_id: None,
+        servant_id: None,
+        is_support: false,
+    }];
+    assert!(!advanced_scene_requires_crit_chance(&scene));
+
+    scene.rules = vec![AdvancedRule {
+        id: "rule".into(),
+        np_condition_groups: Vec::new(),
+        command_condition_groups: vec![crate::AdvancedCommandConditionGroup {
+            id: "cmd".into(),
+            cards: vec![AdvancedCommandCardCondition {
+                slot: 1,
+                servant: "any".into(),
+                suit: "any".into(),
+                min_crit_chance: Some(50),
+                member_id: None,
+                servant_id: None,
+                is_support: false,
+            }],
+        }],
+        actions: Vec::new(),
+    }];
+    assert!(advanced_scene_requires_crit_chance(&scene));
+}
+
+#[test]
 fn grand_startup_keeps_attack_precheck_for_command_card_conditions() {
     let mut scene = empty_advanced_scene();
     scene.command_conditions = vec![AdvancedCommandCardCondition {

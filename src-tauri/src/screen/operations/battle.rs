@@ -10,17 +10,22 @@ impl SidecarClient {
     /// — pass ``None`` to use the defaults. ``assets_dir`` must contain
     /// ``{servant_id}/card_servant_*.png`` for identification to succeed;
     /// when missing or empty, only suit + slot position are returned.
+    /// ``read_crit_digits`` enables the per-card crit-percentage read, which
+    /// is the single most expensive sub-step after face identification; only
+    /// ask for it when the caller actually consumes crit chances.
     pub fn find_command_cards(
         &mut self,
         image_path: Option<&Path>,
         card_regions: Option<&[NormRect]>,
         servant_ids: &[u32],
         assets_dir: Option<&Path>,
+        read_crit_digits: bool,
     ) -> Result<Vec<CommandCardMatch>, CvError> {
         let mut req = request(
             SidecarCommand::FindCommandCards,
             serde_json::json!({
                 "servantIds": servant_ids,
+                "readCritDigits": read_crit_digits,
             }),
         )?;
         if let Some(regions) = card_regions {
