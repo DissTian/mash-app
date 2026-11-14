@@ -47,6 +47,137 @@ const LEVEL_REGION: NormRect = NormRect {
     w: 0.16,
     h: 0.10,
 };
+// Fast region probes for menu transitions: poll every 20 ms for the expected
+// button and continue as soon as it appears (instead of a fixed 1 s sleep).
+// Templates are cropped from CN 1920x1080 screenshots (`enhancement/...`).
+const MENU_STRENGTHEN_REGION: NormRect = NormRect {
+    x: 0.27,
+    y: 0.70,
+    w: 0.17,
+    h: 0.22,
+};
+const ENHANCE_MENU_REGION: NormRect = NormRect {
+    x: 0.50,
+    y: 0.15,
+    w: 0.35,
+    h: 0.25,
+};
+const ASCENSION_TITLE_REGION: NormRect = NormRect {
+    x: 0.77,
+    y: 0.0,
+    w: 0.23,
+    h: 0.11,
+};
+const GRAIL_TITLE_REGION: NormRect = NormRect {
+    x: 0.77,
+    y: 0.0,
+    w: 0.23,
+    h: 0.11,
+};
+// The 取消/决定 row shared by the enhance/grail/ascension confirm dialogs.
+// The button template is matched instead of relying on the dialog title, so a
+// second confirmation (ascension) is tapped even when its title has no anchor.
+const CONFIRM_DECIDE_REGION: NormRect = NormRect {
+    x: 0.56,
+    y: 0.72,
+    w: 0.19,
+    h: 0.17,
+};
+const OVERFLOW_TITLE_REGION: NormRect = NormRect {
+    x: 0.26,
+    y: 0.08,
+    w: 0.48,
+    h: 0.14,
+};
+const GRAIL_CONFIRM_TITLE_REGION: NormRect = NormRect {
+    x: 0.40,
+    y: 0.08,
+    w: 0.20,
+    h: 0.12,
+};
+// Top message + result header strips on the ascension/grail screens; read with
+// the recognition-only model when those screens need text.
+const ASCENSION_MESSAGE_STRIP: NormRect = NormRect {
+    x: 0.29,
+    y: 0.145,
+    w: 0.25,
+    h: 0.062,
+};
+const ENHANCEMENT_HEADER_STRIP: NormRect = NormRect {
+    x: 0.20,
+    y: 0.205,
+    w: 0.17,
+    h: 0.058,
+};
+const SERVANT_ENHANCE_TITLE_REGION: NormRect = NormRect {
+    x: 0.76,
+    y: 0.0,
+    w: 0.24,
+    h: 0.12,
+};
+const PROBE_INTERVAL_MS: u64 = 20;
+const PROBE_TIMEOUT_MS: u64 = 1500;
+
+// Screen-classification anchors (cropped from CN 1920x1080 screenshots).
+const RECOMMEND_TITLE_REGION: NormRect = NormRect {
+    x: 0.37,
+    y: 0.01,
+    w: 0.27,
+    h: 0.10,
+};
+const CONFIRM_TITLE_REGION: NormRect = NormRect {
+    x: 0.37,
+    y: 0.12,
+    w: 0.27,
+    h: 0.12,
+};
+const RESULT_PROMPT_REGION: NormRect = NormRect {
+    x: 0.32,
+    y: 0.86,
+    w: 0.36,
+    h: 0.10,
+};
+const SELECT_TITLE_REGION: NormRect = NormRect {
+    x: 0.10,
+    y: 0.01,
+    w: 0.28,
+    h: 0.10,
+};
+const HOME_NOTICE_REGION: NormRect = NormRect {
+    x: 0.0,
+    y: 0.0,
+    w: 0.16,
+    h: 0.11,
+};
+// Text strips read with the recognition-only model when a screen needs text
+// (`前往圣杯转临` / `前往灵基再临` / servant name / `自动配置关`).
+const MAIN_NAME_STRIP: NormRect = NormRect {
+    x: 0.07,
+    y: 0.865,
+    w: 0.17,
+    h: 0.075,
+};
+const MAIN_ACTION_STRIP: NormRect = NormRect {
+    x: 0.72,
+    y: 0.705,
+    w: 0.235,
+    h: 0.12,
+};
+const RECOMMEND_TOGGLE_STRIP: NormRect = NormRect {
+    x: 0.42,
+    y: 0.555,
+    w: 0.25,
+    h: 0.105,
+};
+const SETTLE_REGION: NormRect = NormRect {
+    x: 0.30,
+    y: 0.30,
+    w: 0.40,
+    h: 0.40,
+};
+const SETTLE_INTERVAL_MS: u64 = 25;
+const SETTLE_LUMA_EPSILON: f64 = 1.2;
+
 const BUTTON_LUMA_REGION: NormRect = NormRect {
     x: 0.833,
     y: 0.895,
@@ -87,10 +218,15 @@ const HOME_STRENGTHEN_BUTTON: Point = Point::new(0.345, 0.87);
 const ENHANCE_SERVANT_ENTRY: Point = Point::new(0.75, 0.23);
 const SERVANT_SELECT_PLUS: Point = Point::new(0.15, 0.50);
 const SERVANT_RESELECT_BUTTON: Point = Point::new(0.18, 0.05);
-const RECOMMEND_BUTTON: Point = Point::new(0.78, 0.21);
-const RECOMMEND_AUTO_SWITCH: Point = Point::new(0.622, 0.604);
-const RECOMMEND_EXECUTE: Point = Point::new(0.62, 0.74);
-const RECOMMEND_CLOSE: Point = Point::new(0.29, 0.74);
+// Measured on CN 1920x1080 screenshots (dev/shots): the button centres are
+// taken from OCR of `推荐选择` on the enhancement main screen and of the
+// dialog's `关闭` / `执行` labels. The old (0.78, 0.21) / (0.29, 0.74) /
+// (0.62, 0.74) values missed the button and hit the neighbouring rows
+// (`初始化` / `解除所有选择`).
+const RECOMMEND_BUTTON: Point = Point::new(0.851, 0.233);
+const RECOMMEND_AUTO_SWITCH: Point = Point::new(0.625, 0.608);
+const RECOMMEND_EXECUTE: Point = Point::new(0.655, 0.876);
+const RECOMMEND_CLOSE: Point = Point::new(0.343, 0.876);
 // Bottom-right 强化 button center (spans x 0.80-0.99, y 0.87-0.97);
 // the old 0.833/0.833 point sat above the button and could hit the
 // material/QP area instead.
@@ -122,30 +258,40 @@ const LIST_RESET_TO: Point = Point::new(0.50, 0.86);
 
 // Filter dialog opened by 筛选 on the servant list. The dialog is a fixed
 // 1920x1080 layout; rarity and class are radio-like rows.
+// Servant filter dialog (筛选设定), measured by OCR on a CN 1920x1080 capture
+// (dev/shots/从者筛选.png): rarity row y=0.340, class rows y=0.556 / 0.669 /
+// 0.781, five columns at x=0.208 / 0.354 / 0.500 / 0.646 / 0.792, and the
+// bottom buttons at y=0.887. The old class rows (0.631 / 0.713) sat between
+// the real rows, so bottom-row classes tapped the row above (e.g. 兽 -> 复仇者).
 const FILTER_OPEN: Point = Point::new(0.772, 0.148);
-const FILTER_RESET: Point = Point::new(0.14, 0.88);
-const FILTER_APPLY: Point = Point::new(0.86, 0.87);
-const FILTER_CANCEL: Point = Point::new(0.66, 0.87);
-const FILTER_RARITY_5: Point = Point::new(0.207, 0.343);
-const FILTER_RARITY_4: Point = Point::new(0.361, 0.343);
-const FILTER_RARITY_3: Point = Point::new(0.517, 0.343);
-const FILTER_RARITY_2: Point = Point::new(0.673, 0.343);
-const FILTER_RARITY_1: Point = Point::new(0.828, 0.343);
-const FILTER_CLASS_SABER: Point = Point::new(0.207, 0.548);
-const FILTER_CLASS_ARCHER: Point = Point::new(0.361, 0.548);
-const FILTER_CLASS_LANCER: Point = Point::new(0.517, 0.548);
-const FILTER_CLASS_RIDER: Point = Point::new(0.673, 0.548);
-const FILTER_CLASS_CASTER: Point = Point::new(0.828, 0.548);
-const FILTER_CLASS_ASSASSIN: Point = Point::new(0.207, 0.631);
-const FILTER_CLASS_BERSERKER: Point = Point::new(0.361, 0.631);
-const FILTER_CLASS_SHIELDER: Point = Point::new(0.517, 0.631);
-const FILTER_CLASS_RULER: Point = Point::new(0.673, 0.631);
-const FILTER_CLASS_AVENGER: Point = Point::new(0.828, 0.631);
-const FILTER_CLASS_MOONCANCER: Point = Point::new(0.207, 0.713);
-const FILTER_CLASS_ALTEREGO: Point = Point::new(0.361, 0.713);
-const FILTER_CLASS_FOREIGNER: Point = Point::new(0.517, 0.713);
-const FILTER_CLASS_PRETENDER: Point = Point::new(0.673, 0.713);
-const FILTER_CLASS_BEAST: Point = Point::new(0.828, 0.713);
+const FILTER_RESET: Point = Point::new(0.175, 0.887);
+const FILTER_APPLY: Point = Point::new(0.824, 0.887);
+const FILTER_CANCEL: Point = Point::new(0.640, 0.887);
+// The dialog content can be left scrolled from a previous session. Clicking
+// the top of the scrollbar track (marked by the user on a CN capture) jumps
+// the list straight back to the top, so the fixed button coordinates below
+// stay aligned before the reset/filter taps.
+const FILTER_SCROLL_TOP: Point = Point::new(0.879, 0.148);
+const FILTER_RARITY_5: Point = Point::new(0.208, 0.340);
+const FILTER_RARITY_4: Point = Point::new(0.354, 0.340);
+const FILTER_RARITY_3: Point = Point::new(0.501, 0.340);
+const FILTER_RARITY_2: Point = Point::new(0.648, 0.340);
+const FILTER_RARITY_1: Point = Point::new(0.795, 0.340);
+const FILTER_CLASS_SABER: Point = Point::new(0.208, 0.556);
+const FILTER_CLASS_ARCHER: Point = Point::new(0.354, 0.556);
+const FILTER_CLASS_LANCER: Point = Point::new(0.500, 0.556);
+const FILTER_CLASS_RIDER: Point = Point::new(0.646, 0.556);
+const FILTER_CLASS_CASTER: Point = Point::new(0.792, 0.556);
+const FILTER_CLASS_ASSASSIN: Point = Point::new(0.208, 0.669);
+const FILTER_CLASS_BERSERKER: Point = Point::new(0.354, 0.669);
+const FILTER_CLASS_SHIELDER: Point = Point::new(0.500, 0.669);
+const FILTER_CLASS_RULER: Point = Point::new(0.646, 0.669);
+const FILTER_CLASS_AVENGER: Point = Point::new(0.792, 0.669);
+const FILTER_CLASS_MOONCANCER: Point = Point::new(0.208, 0.781);
+const FILTER_CLASS_ALTEREGO: Point = Point::new(0.354, 0.781);
+const FILTER_CLASS_FOREIGNER: Point = Point::new(0.500, 0.781);
+const FILTER_CLASS_PRETENDER: Point = Point::new(0.646, 0.781);
+const FILTER_CLASS_BEAST: Point = Point::new(0.792, 0.781);
 
 const SELECT_MAX_SCROLLS: u32 = 60;
 const NAV_MAX_TICKS: u32 = 70;
@@ -354,6 +500,9 @@ pub struct ServantEnhancementRunner {
     template_size: (u32, u32),
     last_level_emit: Option<(String, u32)>,
     last_level_failure_emit: Option<String>,
+    /// Screen confirmed by a fast probe; the next loop iteration can skip the
+    /// full-frame OCR and use this directly.
+    known_screen: Option<Screen>,
 }
 
 impl ServantEnhancementRunner {
@@ -389,12 +538,14 @@ impl ServantEnhancementRunner {
             template_size,
             last_level_emit: None,
             last_level_failure_emit: None,
+            known_screen: None,
         }
     }
 
     pub fn run(mut self) {
         self.transition(ServantEnhancementLifecycleEvent::WorkerStarted);
         self.emit("", "从者强化队列已启动", LogLevel::Info);
+        self.trace_begin("启动队列", "misc");
 
         for index in 0..self.targets.len() {
             if self.is_cancelled() {
@@ -476,7 +627,7 @@ impl ServantEnhancementRunner {
                     self.navigate(ENHANCE_CONFIRM_CANCEL, "取消强化确认")?
                 }
                 Screen::Filter => self.navigate(FILTER_CANCEL, "关闭筛选")?,
-                Screen::Unknown => self.sleep(500),
+                Screen::Unknown => self.settle(500),
             }
         }
         Ok(())
@@ -532,7 +683,19 @@ impl ServantEnhancementRunner {
             if self.is_cancelled() {
                 return Ok(SelectionOutcome::Cancelled);
             }
-            let (screen, ocr) = self.detect()?;
+            // A transition verified by a fast probe already knows the next
+            // screen, so the loop can skip one full-frame OCR (3-5 s).
+            let (screen, ocr) = if let Some(screen) = self.known_screen.take() {
+                (
+                    screen,
+                    OcrRegionResult {
+                        fragments: Vec::new(),
+                        full_text: String::new(),
+                    },
+                )
+            } else {
+                self.detect()?
+            };
             if self.is_cancelled() {
                 return Ok(SelectionOutcome::Cancelled);
             }
@@ -541,9 +704,17 @@ impl ServantEnhancementRunner {
             }
             let text = normalize_text(&ocr.full_text);
             match screen {
-                Screen::HomeClosed => self.navigate(HOME_MENU_BUTTON, "打开菜单")?,
-                Screen::HomeOpen => self.navigate(HOME_STRENGTHEN_BUTTON, "进入强化")?,
-                Screen::EnhanceMenu => self.navigate(ENHANCE_SERVANT_ENTRY, "进入从者强化")?,
+                Screen::HomeClosed => {
+                    if self.open_menu_probe()? {
+                        self.known_screen = Some(Screen::HomeOpen);
+                    }
+                }
+                Screen::HomeOpen => {
+                    if self.enter_strengthen_probe()? {
+                        self.known_screen = Some(Screen::EnhanceMenu);
+                    }
+                }
+                Screen::EnhanceMenu => self.enter_servant_enhance_probe()?,
                 Screen::Main => {
                     if main_shows_empty_selection(&text) {
                         self.navigate(SERVANT_SELECT_PLUS, "选择从者")?;
@@ -566,7 +737,7 @@ impl ServantEnhancementRunner {
                         // list short enough to avoid relying on scrolling.
                         if self.apply_filter(target)? {
                             filter_applied = true;
-                            self.sleep(700);
+                            self.settle(700);
                         }
                         if self.is_cancelled() {
                             return Ok(SelectionOutcome::Cancelled);
@@ -581,7 +752,7 @@ impl ServantEnhancementRunner {
                                 2000,
                                 "回到从者列表顶部",
                             )?;
-                            self.sleep(250);
+                            self.settle(250);
                         }
                         list_prepared = true;
                     }
@@ -592,7 +763,7 @@ impl ServantEnhancementRunner {
                     }
                     match found {
                         Some(()) => {
-                            self.sleep(900);
+                            self.settle(900);
                             return Ok(SelectionOutcome::Selected);
                         }
                         None => {
@@ -611,7 +782,7 @@ impl ServantEnhancementRunner {
                                 "继续查找从者",
                             )?;
                             progress.record_scroll();
-                            self.sleep(700);
+                            self.settle(700);
                         }
                     }
                 }
@@ -630,7 +801,7 @@ impl ServantEnhancementRunner {
                 Screen::GrailConfirm => {
                     self.navigate(GRAIL_CONFIRM_CANCEL, "取消圣杯转临确认")?;
                 }
-                Screen::Unknown => self.sleep(800),
+                Screen::Unknown => self.settle(800),
             }
         }
         if self.is_cancelled() {
@@ -641,17 +812,35 @@ impl ServantEnhancementRunner {
     }
 
     fn apply_filter(&mut self, target: &ServantEnhancementTarget) -> Result<bool, String> {
+        // The dialog changes the screen a lot; a luma change of the centre ROI
+        // is a cheap "dialog opened" signal. If the frame barely changes, fall
+        // back to the full OCR classifier so a differently themed dialog is
+        // still recognised.
+        let baseline = self.settle_luma()?;
         self.tap(FILTER_OPEN, "打开筛选")?;
-        self.sleep(500);
-        let (screen, _) = self.detect()?;
-        if screen != Screen::Filter {
-            return Ok(false);
+        let changed = self.wait_for_luma_change(baseline, 800)?;
+        if !changed {
+            let (screen, _) = self.detect_ocr_fallback()?;
+            if screen != Screen::Filter {
+                return Ok(false);
+            }
         }
+        // Wait for the dialog opening animation to settle: taps sent during the
+        // fade are swallowed, which previously left the reset (回到初始设定)
+        // un-applied and made the class selection toggle the old filter off.
+        self.settle(500);
+        // A previous session may have left the dialog scrolled down. Measured
+        // on a scrolled CN capture: the scrollbar track sits at x=0.879 and the
+        // thumb top at y≈0.155, so the click goes on the track just above the
+        // thumb (y=0.148). Clicking higher lands on the dialog frame and does
+        // nothing.
+        self.tap(FILTER_SCROLL_TOP, "筛选列表回顶")?;
+        self.settle(250);
         // The dialog remembers the previous selection. Reset to "no filter"
         // (all buttons off) so re-selecting the same rarity/class does not
         // toggle it back off.
         self.tap(FILTER_RESET, "重置筛选")?;
-        self.sleep(250);
+        self.settle(250);
         let rarity = match target.rarity {
             5 => FILTER_RARITY_5,
             4 => FILTER_RARITY_4,
@@ -661,13 +850,13 @@ impl ServantEnhancementRunner {
             _ => return Ok(false),
         };
         self.tap(rarity, "筛选稀有度")?;
-        self.sleep(250);
+        self.settle(250);
         if let Some(class) = filter_class_point(&target.class_name) {
             self.tap(class, "筛选职阶")?;
-            self.sleep(250);
+            self.settle(250);
         }
         self.tap(FILTER_APPLY, "应用筛选")?;
-        self.sleep(600);
+        self.settle(600);
         Ok(true)
     }
 
@@ -676,6 +865,7 @@ impl ServantEnhancementRunner {
         target: &ServantEnhancementTarget,
         threshold: f64,
     ) -> Result<Option<()>, String> {
+        self.trace_begin("查找目标从者", "cv");
         let paths: Vec<std::path::PathBuf> = target
             .face_template_paths
             .iter()
@@ -687,6 +877,7 @@ impl ServantEnhancementRunner {
 
         let template_size = self.template_size;
         if target.two_exp {
+            let corner_timer = self.trace_timer();
             let corner = self.sidecar().find_enhancement_servant_grid(
                 None,
                 &paths,
@@ -700,6 +891,13 @@ impl ServantEnhancementRunner {
                 false,
                 true,
             );
+            if let Some(timer) = corner_timer {
+                self.trace_tool(
+                    "cv",
+                    "cv:find_enhancement_servant_grid (2EXP)",
+                    timer.elapsed().as_secs_f64() * 1000.0,
+                );
+            }
             match corner {
                 Ok(result) if result.found => {
                     self.emit(
@@ -739,6 +937,7 @@ impl ServantEnhancementRunner {
             }
         }
 
+        let timer = self.trace_timer();
         let result = self
             .sidecar()
             .find_enhancement_servant_grid(
@@ -754,7 +953,15 @@ impl ServantEnhancementRunner {
                 false,
                 true,
             )
-            .map_err(|err| format!("头像匹配失败: {err}"))?;
+            .map_err(|err| format!("头像匹配失败: {err}"));
+        if let Some(timer) = timer {
+            self.trace_tool(
+                "cv",
+                "cv:find_enhancement_servant_grid",
+                timer.elapsed().as_secs_f64() * 1000.0,
+            );
+        }
+        let result = result?;
         self.emit(
             SCREEN_SELECT,
             &format!(
@@ -811,7 +1018,7 @@ impl ServantEnhancementRunner {
                                     "无法确认当前从者等级：{reason}"
                                 )));
                             }
-                            self.sleep(500);
+                            self.settle(500);
                             continue;
                         }
                         CurrentLevelRead::Cancelled => return Ok(EntryOutcome::Cancelled),
@@ -873,11 +1080,11 @@ impl ServantEnhancementRunner {
                     unknown = 0;
                     match self.find_target_in_list(target, 0.85)? {
                         Some(()) => {
-                            self.sleep(900);
+                            self.settle(900);
                         }
                         None => {
                             self.swipe(LIST_SCROLL_FROM, LIST_SCROLL_TO, 2000, "查找从者")?;
-                            self.sleep(700);
+                            self.settle(700);
                         }
                     }
                 }
@@ -907,7 +1114,7 @@ impl ServantEnhancementRunner {
                 Screen::GrailConfirm => {
                     unknown = 0;
                     self.tap(GRAIL_CONFIRM_DECIDE, "确认圣杯转临")?;
-                    self.sleep(1200);
+                    self.settle(1200);
                 }
                 Screen::HomeClosed | Screen::HomeOpen | Screen::EnhanceMenu => {
                     unknown = 0;
@@ -921,7 +1128,7 @@ impl ServantEnhancementRunner {
                             "连续多次无法识别当前画面".into(),
                         ));
                     }
-                    self.sleep(800);
+                    self.settle(800);
                 }
             }
         }
@@ -945,6 +1152,7 @@ impl ServantEnhancementRunner {
             );
             self.tap(ENHANCE_BUTTON, "执行灵基再临")?;
             self.wait_for_ascension_result()?;
+            self.return_to_enhance_main()?;
             return Ok(None);
         }
         if text.contains("未达到可灵基再临的等级") {
@@ -997,12 +1205,13 @@ impl ServantEnhancementRunner {
         );
         self.tap(ENHANCE_BUTTON, "执行圣杯转临")?;
         self.wait_for_grail_result()?;
+        self.return_to_enhance_main()?;
         Ok(None)
     }
 
     fn auto_select_materials(&mut self) -> Result<(), String> {
         self.tap(RECOMMEND_BUTTON, "打开推荐选择")?;
-        self.sleep(900);
+        self.settle(900);
 
         let mut opened = false;
         for _ in 0..12 {
@@ -1015,7 +1224,7 @@ impl ServantEnhancementRunner {
                 break;
             }
             if screen == Screen::Main {
-                self.sleep(400);
+                self.settle(400);
                 continue;
             }
             break;
@@ -1033,10 +1242,10 @@ impl ServantEnhancementRunner {
                 LogLevel::Info,
             );
             self.tap(RECOMMEND_AUTO_SWITCH, "打开自动配置")?;
-            self.sleep(500);
+            self.settle(500);
         }
         self.tap(RECOMMEND_EXECUTE, "执行推荐选择")?;
-        self.sleep(1400);
+        self.settle(1400);
         Ok(())
     }
 
@@ -1045,28 +1254,39 @@ impl ServantEnhancementRunner {
         let text = normalize_text(&ocr.full_text);
         if text.contains("自动配置关") || text.contains("自动配置off") {
             self.tap(RECOMMEND_AUTO_SWITCH, "打开自动配置")?;
-            self.sleep(500);
+            self.settle(500);
         }
         self.tap(RECOMMEND_EXECUTE, "执行推荐选择")?;
-        self.sleep(1200);
+        self.settle(1200);
         Ok(())
     }
 
     fn button_is_bright(&mut self) -> Result<bool, String> {
-        let luma = self
+        let timer = self.trace_timer();
+        let read = self
             .sidecar()
             .read_region_color(None, BUTTON_LUMA_REGION)
-            .map_err(|err| format!("读取强化按钮亮度失败: {err}"))?
-            .mean_luma;
-        Ok(luma >= 150.0)
+            .map_err(|err| format!("读取强化按钮亮度失败: {err}"));
+        if let Some(timer) = timer {
+            self.trace_tool("cv", "cv:read_region_color", timer.elapsed().as_secs_f64() * 1000.0);
+        }
+        Ok(read?.mean_luma >= 150.0)
     }
 
     fn read_current_level_once(&mut self) -> Result<u32, String> {
-        let result = self
+        let timer = self.trace_timer();
+        let read = self
             .sidecar()
             .read_enhancement_current_level(None)
-            .map_err(|error| format!("等级识别命令失败：{error}"))?;
-        current_level_from_result(result)
+            .map_err(|error| format!("等级识别命令失败：{error}"));
+        if let Some(timer) = timer {
+            self.trace_tool(
+                "cv",
+                "cv:read_enhancement_current_level",
+                timer.elapsed().as_secs_f64() * 1000.0,
+            );
+        }
+        current_level_from_result(read?)
     }
 
     fn read_level(&mut self) -> CurrentLevelRead {
@@ -1127,11 +1347,11 @@ impl ServantEnhancementRunner {
 
     fn trigger_enhance(&mut self) -> Result<(), String> {
         self.tap(ENHANCE_BUTTON, "执行强化")?;
-        self.sleep(1600);
+        self.settle(1600);
         let (screen, _) = self.detect()?;
         if screen == Screen::EnhanceConfirm {
             self.tap(ENHANCE_CONFIRM_DECIDE, "确认强化合成")?;
-            self.sleep(1200);
+            self.settle(1200);
         }
         Ok(())
     }
@@ -1159,13 +1379,41 @@ impl ServantEnhancementRunner {
         match screen {
             Screen::Overflow => {
                 self.tap(OVERFLOW_CLOSE, "关闭溢出提示")?;
-                self.sleep(800);
+                self.settle(800);
             }
             Screen::Result => {
                 self.tap(BOTTOM_TAP, "关闭强化结果")?;
-                self.sleep(1600);
+                self.wait_until_anchor_gone(
+                    "强化结果",
+                    "enhancement/result_click_prompt",
+                    RESULT_PROMPT_REGION,
+                    2500,
+                )?;
             }
             _ => {}
+        }
+        Ok(())
+    }
+
+    /// After an ascension/grail result, close the result overlay and walk back
+    /// to the enhancement main screen. Returns only when the main screen is
+    /// actually detected, so the caller re-reads the level instead of guessing
+    /// completion from a transition frame.
+    fn return_to_enhance_main(&mut self) -> Result<(), String> {
+        for _ in 0..4 {
+            if self.is_cancelled() {
+                return Ok(());
+            }
+            let (screen, _) = self.detect()?;
+            match screen {
+                Screen::Main => return Ok(()),
+                Screen::Result | Screen::Overflow => self.handle_result_screen(screen)?,
+                Screen::Ascension => {
+                    self.navigate(ASCENSION_BACK_TO_SERVANT, "返回强化从者")?
+                }
+                Screen::Grail => self.navigate(GRAIL_BACK_TO_SERVANT, "返回强化从者")?,
+                _ => self.settle(300),
+            }
         }
         Ok(())
     }
@@ -1204,29 +1452,86 @@ impl ServantEnhancementRunner {
             if self.is_cancelled() {
                 return Ok(());
             }
-            let (screen, ocr) = self.detect()?;
+            let probed = self.probe_screen()?;
+            let (screen, ocr) = match probed {
+                Some(screen) => {
+                    let text = self.fast_text(screen)?;
+                    (
+                        screen,
+                        OcrRegionResult {
+                            fragments: Vec::new(),
+                            full_text: text,
+                        },
+                    )
+                }
+                None => {
+                    // No anchor matched: mid-animation (skip OCR, advance the
+                    // dialogue periodically) or an unanchored static screen
+                    // (fall back to the full OCR classifier).
+                    if self.frame_is_stable()? {
+                        self.detect_ocr_fallback()?
+                    } else {
+                        if start.elapsed() >= ANIMATION_TIMEOUT {
+                            return Err(format!("{label}等待超时"));
+                        }
+                        if last_tap.elapsed() >= Duration::from_millis(2000) {
+                            self.tap(BOTTOM_TAP, "点击跳过对话")?;
+                            last_tap = Instant::now();
+                        }
+                        self.settle(300);
+                        continue;
+                    }
+                }
+            };
             if done(self, screen, &ocr) {
                 return Ok(());
+            }
+            // A confirmation dialog can sit on top of any of these screens.
+            // Match its 决定 button, tap the detected position and wait for it
+            // to disappear instead of guessing which dialog it is.
+            if let Some(point) = self.probe_template_point(
+                "enhancement/confirm_decide_button",
+                CONFIRM_DECIDE_REGION,
+                0.80,
+            )? {
+                self.tap(point, "确认对话框")?;
+                self.wait_until_anchor_gone(
+                    "确认对话框",
+                    "enhancement/confirm_decide_button",
+                    CONFIRM_DECIDE_REGION,
+                    2000,
+                )?;
+                continue;
             }
             match screen {
                 Screen::EnhanceConfirm => {
                     self.tap(ENHANCE_CONFIRM_DECIDE, "确认强化合成")?;
-                    self.sleep(1200);
+                    self.wait_until_anchor_gone(
+                        "强化确认",
+                        "enhancement/dialog_confirm_title",
+                        CONFIRM_TITLE_REGION,
+                        2000,
+                    )?;
                     continue;
                 }
                 Screen::GrailConfirm => {
                     self.tap(GRAIL_CONFIRM_DECIDE, "确认圣杯转临")?;
-                    self.sleep(1200);
+                    self.settle(1200);
                     continue;
                 }
                 Screen::Overflow => {
                     self.tap(OVERFLOW_CLOSE, "关闭溢出提示")?;
-                    self.sleep(700);
+                    self.settle(700);
                     continue;
                 }
                 Screen::Result => {
                     self.tap(BOTTOM_TAP, "关闭结果画面")?;
-                    self.sleep(1400);
+                    self.wait_until_anchor_gone(
+                        "强化结果",
+                        "enhancement/result_click_prompt",
+                        RESULT_PROMPT_REGION,
+                        2500,
+                    )?;
                     continue;
                 }
                 _ => {}
@@ -1238,8 +1543,341 @@ impl ServantEnhancementRunner {
                 self.tap(BOTTOM_TAP, "点击跳过对话")?;
                 last_tap = Instant::now();
             }
-            self.sleep(500);
+            self.settle(500);
         }
+    }
+
+    /// Flow-trace helpers. With the `flow-trace` Cargo feature disabled these
+    /// compile to empty inline functions, so production builds carry neither
+    /// the trace state nor the measurement work.
+    #[cfg(any(debug_assertions, feature = "flow-trace"))]
+    fn trace_begin(&self, name: impl Into<String>, kind: impl Into<String>) {
+        let state = self.app.state::<Mutex<crate::flow_trace::FlowTrace>>();
+        if let Ok(mut trace) = state.inner().lock() {
+            if trace.is_enabled() {
+                trace.begin_step(name, kind);
+            }
+        }
+    }
+
+    #[cfg(not(any(debug_assertions, feature = "flow-trace")))]
+    #[inline(always)]
+    fn trace_begin(&self, _name: impl Into<String>, _kind: impl Into<String>) {}
+
+    #[cfg(any(debug_assertions, feature = "flow-trace"))]
+    fn trace_tool(&self, name: &str, label: impl Into<String>, duration_ms: f64) {
+        let state = self.app.state::<Mutex<crate::flow_trace::FlowTrace>>();
+        if let Ok(mut trace) = state.inner().lock() {
+            if trace.is_enabled() {
+                trace.record_tool(name, label, duration_ms);
+            }
+        }
+    }
+
+    #[cfg(not(any(debug_assertions, feature = "flow-trace")))]
+    #[inline(always)]
+    fn trace_tool(&self, _name: &str, _label: impl Into<String>, _duration_ms: f64) {}
+
+    #[cfg(any(debug_assertions, feature = "flow-trace"))]
+    fn trace_timer(&self) -> Option<Instant> {
+        Some(Instant::now())
+    }
+
+    #[cfg(not(any(debug_assertions, feature = "flow-trace")))]
+    #[inline(always)]
+    fn trace_timer(&self) -> Option<Instant> {
+        None
+    }
+
+
+    #[cfg(any(debug_assertions, feature = "flow-trace"))]
+    fn trace_finish(&self, status: &str) {
+        let state = self.app.state::<Mutex<crate::flow_trace::FlowTrace>>();
+        if let Ok(mut trace) = state.inner().lock() {
+            if trace.is_enabled() {
+                trace.finish_step(status);
+            }
+        }
+    }
+
+    #[cfg(not(any(debug_assertions, feature = "flow-trace")))]
+    #[inline(always)]
+    fn trace_finish(&self, _status: &str) {}
+
+    #[cfg(any(debug_assertions, feature = "flow-trace"))]
+    fn trace_probe(&self, probes: u32, started: Instant) {
+        self.trace_tool(
+            "cv",
+            format!("probe_template ×{probes}"),
+            started.elapsed().as_secs_f64() * 1000.0,
+        );
+    }
+
+    #[cfg(not(any(debug_assertions, feature = "flow-trace")))]
+    #[inline(always)]
+    fn trace_probe(&self, _probes: u32, _started: Instant) {}
+
+    /// Classify the current screen from a handful of fast template probes.
+    /// Returns `None` when no anchor matches (caller falls back to full OCR).
+    fn probe_screen(&mut self) -> Result<Option<Screen>, String> {
+        let probes: [(&str, NormRect, Screen); 12] = [
+            ("enhancement/recommend_title", RECOMMEND_TITLE_REGION, Screen::Recommend),
+            ("enhancement/grail_confirm_title", GRAIL_CONFIRM_TITLE_REGION, Screen::GrailConfirm),
+            ("enhancement/dialog_confirm_title", CONFIRM_TITLE_REGION, Screen::EnhanceConfirm),
+            ("enhancement/overflow_title", OVERFLOW_TITLE_REGION, Screen::Overflow),
+            ("enhancement/result_click_prompt", RESULT_PROMPT_REGION, Screen::Result),
+            ("enhancement/select_title", SELECT_TITLE_REGION, Screen::Select),
+            ("enhancement/screen_servant_enhance_title", SERVANT_ENHANCE_TITLE_REGION, Screen::Main),
+            ("enhancement/ascension_title", ASCENSION_TITLE_REGION, Screen::Ascension),
+            ("enhancement/grail_title", GRAIL_TITLE_REGION, Screen::Grail),
+            ("enhancement/menu_strengthen", MENU_STRENGTHEN_REGION, Screen::HomeOpen),
+            ("enhancement/menu_servant_enhance", ENHANCE_MENU_REGION, Screen::EnhanceMenu),
+            ("enhancement/home_notice_button", HOME_NOTICE_REGION, Screen::HomeClosed),
+        ];
+        for (template, region, screen) in probes {
+            if self.probe_template_point(template, region, 0.80)?.is_some() {
+                return Ok(Some(screen));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Synthesize just the text a screen needs, using rec-only strips instead
+    /// of a full-frame OCR. Screens without text decisions return "".
+    fn fast_text(&mut self, screen: Screen) -> Result<String, String> {
+        let regions: &[NormRect] = match screen {
+            Screen::Main => &[MAIN_NAME_STRIP, MAIN_ACTION_STRIP],
+            Screen::Recommend => &[RECOMMEND_TOGGLE_STRIP],
+            Screen::Ascension | Screen::Grail => {
+                &[ASCENSION_MESSAGE_STRIP, ENHANCEMENT_HEADER_STRIP]
+            }
+            _ => return Ok(String::new()),
+        };
+        let texts = self
+            .sidecar()
+            .recognize_strips(None, regions)
+            .map_err(|err| format!("识别文本条失败: {err}"))?;
+        Ok(texts.join(" "))
+    }
+
+    fn settle_luma(&mut self) -> Result<f64, String> {
+        self.sidecar()
+            .read_region_color(None, SETTLE_REGION)
+            .map(|color| color.mean_luma)
+            .map_err(|err| format!("读取画面亮度失败: {err}"))
+    }
+
+    /// Poll every 25 ms until the centre luma changes by ~5 (dialog opened).
+    fn wait_for_luma_change(&mut self, baseline: f64, timeout_ms: u64) -> Result<bool, String> {
+        self.trace_begin("等待筛选对话框", "settle");
+        let started = Instant::now();
+        let mut samples = 0_u32;
+        let mut elapsed_ms = 0.0_f64;
+        loop {
+            samples += 1;
+            let luma = self.settle_luma()?;
+            elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+            if (luma - baseline).abs() >= 5.0 {
+                break;
+            }
+            if elapsed_ms >= timeout_ms as f64 {
+                #[cfg(any(debug_assertions, feature = "flow-trace"))]
+                self.trace_tool("cv", format!("luma ×{samples}"), elapsed_ms);
+                let _ = samples;
+                return Ok(false);
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        #[cfg(any(debug_assertions, feature = "flow-trace"))]
+        self.trace_tool("cv", format!("luma ×{samples}"), elapsed_ms);
+        let _ = samples;
+        Ok(true)
+    }
+
+    /// Poll a known anchor until it disappears (dialog dismissed), so closing
+    /// a dialog and confirming it closed happen in one wait instead of a fixed
+    /// sleep followed by a second detection.
+    fn wait_until_anchor_gone(
+        &mut self,
+        label: &str,
+        template: &str,
+        region: NormRect,
+        timeout_ms: u64,
+    ) -> Result<(), String> {
+        #[cfg(any(debug_assertions, feature = "flow-trace"))]
+        self.trace_begin(format!("等待{label}关闭"), "probe");
+        let started = Instant::now();
+        let mut probes = 0_u32;
+        loop {
+            probes += 1;
+            if self
+                .probe_template_point(template, region, 0.80)?
+                .is_none()
+            {
+                thread::sleep(Duration::from_millis(60));
+                break;
+            }
+            if started.elapsed() >= Duration::from_millis(timeout_ms) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(30));
+        }
+        self.trace_probe(probes, started);
+        Ok(())
+    }
+
+    /// Two luma samples 80 ms apart agree -> the frame stopped animating.
+    fn frame_is_stable(&mut self) -> Result<bool, String> {
+        let first = self.settle_luma()?;
+        thread::sleep(Duration::from_millis(80));
+        let second = self.settle_luma()?;
+        Ok((first - second).abs() <= SETTLE_LUMA_EPSILON)
+    }
+
+    /// Wait until the centre of the frame stops changing instead of sleeping a
+    /// fixed duration. Returns as soon as two consecutive luma samples agree
+    /// for ~75 ms, capped at `max_ms` (the old fixed wait).
+    fn settle(&mut self, max_ms: u64) {
+        #[cfg(any(debug_assertions, feature = "flow-trace"))]
+        self.trace_begin(format!("等待画面稳定（≤{max_ms} ms）"), "settle");
+        let started = Instant::now();
+        let mut last: Option<f64> = None;
+        let mut stable = 0_u32;
+        let mut samples = 0_u32;
+        let mut elapsed_ms = 0.0_f64;
+        loop {
+            thread::sleep(Duration::from_millis(SETTLE_INTERVAL_MS));
+            if self.is_cancelled() {
+                break;
+            }
+            let luma = self
+                .sidecar()
+                .read_region_color(None, SETTLE_REGION)
+                .map(|color| color.mean_luma)
+                .unwrap_or(0.0);
+            samples += 1;
+            if let Some(previous) = last {
+                if (luma - previous).abs() <= SETTLE_LUMA_EPSILON {
+                    stable += 1;
+                } else {
+                    stable = 0;
+                }
+            }
+            last = Some(luma);
+            elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+            if stable >= 3 || elapsed_ms >= max_ms as f64 {
+                break;
+            }
+        }
+        #[cfg(any(debug_assertions, feature = "flow-trace"))]
+        self.trace_tool("cv", format!("luma ×{samples}"), elapsed_ms);
+        let _ = (samples, elapsed_ms);
+    }
+
+    fn probe_template_point(
+        &mut self,
+        template_key: &str,
+        region: NormRect,
+        threshold: f64,
+    ) -> Result<Option<Point>, String> {
+        let result = self
+            .sidecar()
+            .probe_template(None, template_key, region, threshold, 1920)
+            .map_err(|err| format!("检测 {template_key} 失败: {err}"))?;
+        Ok(if result.found {
+            Some(Point::new(result.x, result.y))
+        } else {
+            None
+        })
+    }
+
+    /// Poll a small region every 20 ms until the template appears (or timeout).
+    /// Returns the template centre so callers can tap the detected position.
+    fn wait_for_template(
+        &mut self,
+        label: &str,
+        template_key: &str,
+        region: NormRect,
+        timeout_ms: u64,
+    ) -> Result<Option<Point>, String> {
+        #[cfg(any(debug_assertions, feature = "flow-trace"))]
+        self.trace_begin(format!("等待 {label}"), "probe");
+        #[cfg(not(any(debug_assertions, feature = "flow-trace")))]
+        let _ = label;
+        let started = Instant::now();
+        let mut probes = 0_u32;
+        loop {
+            if self.is_cancelled() {
+                return Ok(None);
+            }
+            probes += 1;
+            if let Some(point) = self.probe_template_point(template_key, region, 0.80)? {
+                self.trace_probe(probes, started);
+                return Ok(Some(point));
+            }
+            if started.elapsed() >= Duration::from_millis(timeout_ms) {
+                self.trace_probe(probes, started);
+                return Ok(None);
+            }
+            thread::sleep(Duration::from_millis(PROBE_INTERVAL_MS));
+        }
+    }
+
+    /// Home → menu: tap the menu button, then poll for the strengthen button.
+    fn open_menu_probe(&mut self) -> Result<bool, String> {
+        self.tap(HOME_MENU_BUTTON, "打开菜单")?;
+        Ok(self
+            .wait_for_template(
+                "强化按钮",
+                "enhancement/menu_strengthen",
+                MENU_STRENGTHEN_REGION,
+                PROBE_TIMEOUT_MS,
+            )?
+            .is_some())
+    }
+
+    /// Menu → strengthen: tap the detected strengthen button, then poll for the
+    /// servant-enhance entry.
+    fn enter_strengthen_probe(&mut self) -> Result<bool, String> {
+        let found = self.wait_for_template(
+            "强化按钮",
+            "enhancement/menu_strengthen",
+            MENU_STRENGTHEN_REGION,
+            800,
+        )?;
+        let point = found.unwrap_or(HOME_STRENGTHEN_BUTTON);
+        self.tap(point, "进入强化")?;
+        Ok(self
+            .wait_for_template(
+                "从者强化",
+                "enhancement/menu_servant_enhance",
+                ENHANCE_MENU_REGION,
+                PROBE_TIMEOUT_MS,
+            )?
+            .is_some())
+    }
+
+    /// Strengthen → servant enhance: tap the detected entry, then poll for the
+    /// top-left return button that both the select list and the main screen show.
+    fn enter_servant_enhance_probe(&mut self) -> Result<(), String> {
+        let found = self.wait_for_template(
+            "从者强化",
+            "enhancement/menu_servant_enhance",
+            ENHANCE_MENU_REGION,
+            800,
+        )?;
+        let point = found.unwrap_or(ENHANCE_SERVANT_ENTRY);
+        self.tap(point, "进入从者强化")?;
+        // The enhancement select list and the main screen both show the
+        // `从者强化` title; the strengthen submenu does not, so this is a
+        // reliable "entered the servant enhancement" signal.
+        self.wait_for_template(
+            "从者强化界面",
+            "enhancement/screen_servant_enhance_title",
+            SERVANT_ENHANCE_TITLE_REGION,
+            PROBE_TIMEOUT_MS,
+        )?;
+        Ok(())
     }
 
     fn navigate_to_enhancement(&mut self) -> Result<(), String> {
@@ -1254,15 +1892,67 @@ impl ServantEnhancementRunner {
 
     fn navigate(&mut self, point: Point, label: &str) -> Result<(), String> {
         self.tap(point, label)?;
-        self.sleep(1000);
+        self.settle(1000);
         Ok(())
     }
 
-    fn detect(&mut self) -> Result<(Screen, OcrRegionResult), String> {
-        let ocr = self
+    /// Full-frame OCR classification that bypasses the template probes.
+    /// Needed for screens without an anchor whose background still matches a
+    /// probed screen (the filter dialog is a translucent overlay above the
+    /// select list, so the list title would otherwise win).
+    fn detect_ocr_fallback(&mut self) -> Result<(Screen, OcrRegionResult), String> {
+        self.trace_begin("识别画面（OCR 回退）", "detect");
+        let timer = self.trace_timer();
+        let ocr_result = self
             .sidecar()
             .ocr_region(None, FULL_SCREEN)
-            .map_err(|err| format!("OCR 失败: {err}"))?;
+            .map_err(|err| format!("OCR 失败: {err}"));
+        if let Some(timer) = timer {
+            self.trace_tool("cv", "cv:ocr_region", timer.elapsed().as_secs_f64() * 1000.0);
+        }
+        let ocr = ocr_result?;
+        Ok((classify_screen(&normalize_text(&ocr.full_text)), ocr))
+    }
+
+    fn detect(&mut self) -> Result<(Screen, OcrRegionResult), String> {
+        self.trace_begin("识别画面", "detect");
+        // Fast path: classify by template probes (~20-40 ms) and read only the
+        // text strips the screen needs (rec-only), instead of a 3-5 s
+        // full-frame OCR.
+        let probe_timer = self.trace_timer();
+        let probed = self.probe_screen();
+        if let Some(timer) = probe_timer {
+            self.trace_tool("cv", "probe_screen", timer.elapsed().as_secs_f64() * 1000.0);
+        }
+        if let Some(screen) = probed? {
+            let text_timer = self.trace_timer();
+            let text = self.fast_text(screen);
+            if let Some(timer) = text_timer {
+                self.trace_tool(
+                    "cv",
+                    "recognize_strips",
+                    timer.elapsed().as_secs_f64() * 1000.0,
+                );
+            }
+            return Ok((
+                screen,
+                OcrRegionResult {
+                    fragments: Vec::new(),
+                    full_text: text?,
+                },
+            ));
+        }
+        // Fallback: layouts without an anchor (filter dialog, ascension/grail
+        // prompts, overflow, unknown) still use the full OCR.
+        let timer = self.trace_timer();
+        let ocr_result = self
+            .sidecar()
+            .ocr_region(None, FULL_SCREEN)
+            .map_err(|err| format!("OCR 失败: {err}"));
+        if let Some(timer) = timer {
+            self.trace_tool("cv", "cv:ocr_region", timer.elapsed().as_secs_f64() * 1000.0);
+        }
+        let ocr = ocr_result?;
         Ok((classify_screen(&normalize_text(&ocr.full_text)), ocr))
     }
 
@@ -1376,10 +2066,14 @@ impl ServantEnhancementRunner {
         if self.is_cancelled() {
             return Err("从者强化已取消".into());
         }
+        self.trace_begin(label, "tap");
         let (px, py) = point.to_physical(self.screen_w, self.screen_h);
-        self.touch
-            .tap(px, py)
-            .map_err(|err| format!("{label}点击失败: {err}"))
+        let timer = self.trace_timer();
+        let result = self.touch.tap(px, py);
+        if let Some(timer) = timer {
+            self.trace_tool("touch", label, timer.elapsed().as_secs_f64() * 1000.0);
+        }
+        result.map_err(|err| format!("{label}点击失败: {err}"))
     }
 
     fn swipe(
@@ -1392,20 +2086,22 @@ impl ServantEnhancementRunner {
         if self.is_cancelled() {
             return Err("从者强化已取消".into());
         }
+        self.trace_begin(label, "swipe");
         let from = from.to_physical(self.screen_w, self.screen_h);
         let to = to.to_physical(self.screen_w, self.screen_h);
-        self.touch
-            .swipe(from, to, duration_ms)
-            .map_err(|err| format!("{label}滑动失败: {err}"))
+        let timer = self.trace_timer();
+        let result = self.touch.swipe(from, to, duration_ms);
+        if let Some(timer) = timer {
+            self.trace_tool("swipe", label, timer.elapsed().as_secs_f64() * 1000.0);
+        }
+        result.map_err(|err| format!("{label}滑动失败: {err}"))
     }
 
-    fn sleep(&self, ms: u64) {
-        thread::sleep(Duration::from_millis(ms));
-    }
 }
 
 impl Drop for ServantEnhancementRunner {
     fn drop(&mut self) {
+        self.trace_finish("ok");
         if let Some(sidecar) = self.sidecar.take() {
             sidecar.return_to_cache(self.sidecar_cache.as_deref());
         }

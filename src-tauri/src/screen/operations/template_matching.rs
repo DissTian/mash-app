@@ -3,6 +3,80 @@
 use super::*;
 
 impl SidecarClient {
+    /// Match one UI template (by sidecar template key) inside a small region.
+    /// Designed for 10-30 ms polling loops: the sidecar caches the scaled
+    /// template and only runs a single `matchTemplate` on the region crop.
+    pub fn probe_template(
+        &mut self,
+        image_path: Option<&Path>,
+        template_key: &str,
+        region: NormRect,
+        threshold: f64,
+        template_reference_width: u32,
+    ) -> Result<ProbeTemplateResult, CvError> {
+        let mut req = request(
+            SidecarCommand::ProbeTemplate,
+            serde_json::json!({
+                "templateKey": template_key,
+                "templateReferenceWidth": template_reference_width,
+                "region": {
+                    "x": region.x,
+                    "y": region.y,
+                    "w": region.w,
+                    "h": region.h,
+                },
+                "threshold": threshold,
+            }),
+        )?;
+        Self::add_image_path(&mut req, image_path);
+        let resp = self.send_recv(&req)?;
+        if let Some(err) = resp.get("error").and_then(|value| value.as_str()) {
+            return Err(format!("probe_template({template_key}): {err}").into());
+        }
+        Ok(serde_json::from_value::<ProbeTemplateResult>(resp)
+            .map_err(|error| format!("invalid probe_template response: {error}"))?)
+    }
+
+    /// Recognition-only batch over small text strips (no detector pass).
+    /// Used by the enhancement runner to synthesize just the text it needs
+    /// instead of a full-frame OCR.
+    pub fn recognize_strips(
+        &mut self,
+        image_path: Option<&Path>,
+        regions: &[NormRect],
+    ) -> Result<Vec<String>, CvError> {
+        let mut req = request(
+            SidecarCommand::RecognizeStrips,
+            serde_json::json!({
+                "regions": regions
+                    .iter()
+                    .map(|region| serde_json::json!({
+                        "x": region.x,
+                        "y": region.y,
+                        "w": region.w,
+                        "h": region.h,
+                    }))
+                    .collect::<Vec<_>>(),
+            }),
+        )?;
+        Self::add_image_path(&mut req, image_path);
+        let resp = self.send_recv(&req)?;
+        if let Some(err) = resp.get("error").and_then(|value| value.as_str()) {
+            return Err(format!("recognize_strips: {err}").into());
+        }
+        let texts = resp
+            .get("texts")
+            .and_then(|value| value.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|item| item.as_str().unwrap_or("").to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(texts)
+    }
+
     /// Search for an arbitrary grayscale template file within a region.
     #[allow(dead_code)]
     pub fn find_region(

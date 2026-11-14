@@ -23,7 +23,7 @@ export const EMPTY_DEBUG_SELECT_VALUE = "__empty__";
 const DEBUG_PREFS_STORAGE_KEY = "mash.debugPagePrefs.v1";
 
 export interface DebugPagePrefs {
-  debugView?: "canvas" | "tools";
+  debugView?: "canvas" | "tools" | "flow";
   selectedScreen?: string;
   selectedElement?: string;
   rawTemplateInput?: string;

@@ -994,6 +994,81 @@ class TemplateLoadError(RuntimeError):
         super().__init__(self.response["error"])
 
 
+# Region probe: match one UI template inside a small region. Used by the
+# enhancement runner to poll 10-30 ms until a button appears instead of
+# sleeping a fixed second, and to get the button's actual on-screen position.
+_PROBE_TEMPLATE_CACHE: dict[tuple, np.ndarray] = {}
+
+
+def _probe_template(img: np.ndarray, cmd: dict) -> dict:
+    h, w = img.shape[:2]
+    region = cmd.get("region") or {}
+    region = {
+        "x": float(region.get("x", 0.0)),
+        "y": float(region.get("y", 0.0)),
+        "w": float(region.get("w", 1.0)),
+        "h": float(region.get("h", 1.0)),
+    }
+    threshold = float(cmd.get("threshold", 0.80))
+    template_key = str(cmd.get("templateKey", ""))
+    template_path = cmd.get("templatePath")
+    if not template_key and not template_path:
+        return {"found": False, "score": 0.0, "error": "missing template"}
+    if not template_path:
+        path = _template_path_for_key(template_key)
+        if path is None:
+            return {"found": False, "score": 0.0, "error": f"template not found: {template_key}"}
+    else:
+        path = str(template_path)
+    reference_width = cmd.get("templateReferenceWidth")
+    cache_key = (path, w, h, float(reference_width or 0.0))
+    template = _PROBE_TEMPLATE_CACHE.get(cache_key)
+    if template is None:
+        raw = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if raw is None:
+            return {"found": False, "score": 0.0, "error": f"template load failed: {path}"}
+        if reference_width:
+            scale = w / float(reference_width)
+            if abs(scale - 1.0) > 1e-3:
+                raw = cv2.resize(
+                    raw,
+                    (max(1, round(raw.shape[1] * scale)), max(1, round(raw.shape[0] * scale))),
+                    interpolation=cv2.INTER_AREA,
+                )
+        template = raw
+        if len(_PROBE_TEMPLATE_CACHE) > 64:
+            _PROBE_TEMPLATE_CACHE.clear()
+        _PROBE_TEMPLATE_CACHE[cache_key] = template
+    rx = max(0, int(round(region["x"] * w)))
+    ry = max(0, int(round(region["y"] * h)))
+    rw = max(1, min(int(round(region["w"] * w)), w - rx))
+    rh = max(1, min(int(round(region["h"] * h)), h - ry))
+    roi = img[ry : ry + rh, rx : rx + rw]
+    if roi.size == 0:
+        return {"found": False, "score": 0.0, "error": "empty region"}
+    gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY) if roi.ndim == 3 else roi
+    th, tw = template.shape[:2]
+    if th > gray.shape[0] or tw > gray.shape[1]:
+        return {"found": False, "score": 0.0, "error": "template larger than region"}
+    result = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
+    _, score, _, loc = cv2.minMaxLoc(result)
+    left = rx + int(loc[0])
+    top = ry + int(loc[1])
+    return {
+        "found": float(score) >= threshold,
+        "score": float(score),
+        "x": (left + tw / 2.0) / w,
+        "y": (top + th / 2.0) / h,
+        "region": {
+            "x": left / w,
+            "y": top / h,
+            "w": tw / w,
+            "h": th / h,
+        },
+        "templateSize": {"w": tw, "h": th},
+    }
+
+
 def _read_template_image(
     path: str,
     flags: int = cv2.IMREAD_UNCHANGED,
@@ -7922,6 +7997,42 @@ def _main_repl() -> None:
                             bool(cmd.get("timings", False)),
                         ),
                     )
+            elif action == "probe_template":
+                img, err = _load_frame(cmd)
+                if img is None:
+                    _reply(req_id, {"found": False, "score": 0.0, "error": err})
+                else:
+                    _reply(req_id, _probe_template(img, cmd))
+            elif action == "recognize_strips":
+                img, err = _load_frame(cmd)
+                if img is None:
+                    _reply(req_id, {"texts": [], "error": err})
+                else:
+                    ocr = _get_ocr()
+                    recognizer = getattr(ocr, "text_recognizer", None)
+                    regions = cmd.get("regions") or []
+                    if not callable(recognizer) or not regions:
+                        _reply(req_id, {"texts": ["" for _ in regions]})
+                    else:
+                        h, w = img.shape[:2]
+                        crops = []
+                        for r in regions:
+                            x0 = max(0, int(round(float(r.get("x", 0.0)) * w)))
+                            y0 = max(0, int(round(float(r.get("y", 0.0)) * h)))
+                            x1 = min(w, int(round((float(r.get("x", 0.0)) + float(r.get("w", 1.0))) * w)))
+                            y1 = min(h, int(round((float(r.get("y", 0.0)) + float(r.get("h", 1.0))) * h)))
+                            crops.append(img[y0:y1, x0:x1])
+                        try:
+                            results, elapsed = recognizer(crops)
+                        except Exception:  # noqa: BLE001 - strips are best-effort
+                            results, elapsed = [], 0.0
+                        texts = []
+                        for index in range(len(regions)):
+                            if index < len(results) and results[index]:
+                                texts.append(str(results[index][0]).strip())
+                            else:
+                                texts.append("")
+                        _reply(req_id, {"texts": texts, "elapsed": elapsed})
             elif action == "ocr_region":
                 img, err = _load_frame(cmd)
                 if img is None:

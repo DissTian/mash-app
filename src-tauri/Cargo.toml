@@ -17,6 +17,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+default = []
+# CV debug "流程测试" tracing. Test builds enable it via
+# `tauri build --features flow-trace`; normal releases leave it off so the
+# trace state, command bodies and runner hooks are compiled out.
+flow-trace = []
+
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"

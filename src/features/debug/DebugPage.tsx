@@ -19,6 +19,7 @@ import type { CraftEssence } from "../../types/craftEssence";
 import type { Servant } from "../../types/servant";
 import type { SupportGrandBondCeMode } from "../../types/project";
 import { DebugCanvas, type DebugCanvasState } from "./DebugCanvas";
+import { FlowTracePanel } from "./FlowTracePanel";
 import { CraftEssenceSelectDialog } from "../team/CraftEssenceSelectDialog";
 import { ServantSelectDialog } from "../team/ServantSelectDialog";
 import { DebugSection } from "./DebugSection";
@@ -125,8 +126,12 @@ export function DebugPage({
   }, []);
   // 画面 = full-size canvas only; 工具 = the option/result rows without the
   // inline canvas (the canvas was too short to be usable inside the column).
-  const [debugView, setDebugView] = useState<"canvas" | "tools">(
-    initialPrefs.debugView === "canvas" ? "canvas" : "tools"
+  const [debugView, setDebugView] = useState<"canvas" | "tools" | "flow">(
+    initialPrefs.debugView === "canvas"
+      ? "canvas"
+      : initialPrefs.debugView === "flow"
+        ? "flow"
+        : "tools"
   );
   const [capture, setCapture] = useState<DebugCaptureResult | null>(null);
   const [liveFrame, setLiveFrame] = useState<DebugStreamFrameResultDto | null>(
@@ -1473,6 +1478,16 @@ export function DebugPage({
             >
               <Text size="1">工具</Text>
             </Button>
+            <Button
+              type="button"
+              size="2"
+              variant={debugView === "flow" ? "solid" : "soft"}
+              color={debugView === "flow" ? undefined : "gray"}
+              onClick={() => setDebugView("flow")}
+              title="记录强化任务整个流程的动作与工具耗时"
+            >
+              <Text size="1">流程测试</Text>
+            </Button>
           </Flex>
           <Button
             type="button"
@@ -1490,9 +1505,12 @@ export function DebugPage({
       </Flex>
 
       <Flex
-        className={`debug-body${debugView === "canvas" ? " debug-body-canvas" : ""}`}
+        className={`debug-body${debugView === "canvas" ? " debug-body-canvas" : ""}${
+          debugView === "flow" ? " debug-body-flow" : ""
+        }`}
         gap="4"
       >
+        {debugView === "flow" && <FlowTracePanel />}
         <Flex
           direction="column"
           className={`debug-canvas-col${debugView === "tools" ? " debug-canvas-col-tools" : ""}`}

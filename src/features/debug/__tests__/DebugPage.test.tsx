@@ -572,6 +572,32 @@ describe("DebugPage", () => {
     expect(screen.queryByText("点击 截取画面 开始")).not.toBeInTheDocument();
   });
 
+  it("switches to the flow test view and renders the trace panel", async () => {
+    mockDebugPageBootstrap((cmd) => {
+      if (cmd === "flow_trace_snapshot") {
+        return { enabled: false, totalMs: 0, steps: [], currentStep: null };
+      }
+      return null;
+    });
+    const user = userEvent.setup();
+    renderDebugPage();
+
+    const body = () =>
+      document.querySelector(".debug-body") as HTMLElement | null;
+
+    await user.click(await screen.findByRole("button", { name: "流程测试" }));
+
+    expect(body()?.classList.contains("debug-body-flow")).toBe(true);
+    expect(
+      await screen.findByText(/点击「开始流程测试」后在游戏主页启动强化队列/)
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "开始流程测试" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "工具" }));
+    expect(body()?.classList.contains("debug-body-flow")).toBe(false);
+    expect(screen.getByText("原始模板探针")).toBeInTheDocument();
+  });
+
   it("shows per-step timing and the total after a recognition step", async () => {
     mockDebugPageBootstrap((cmd) =>
       cmd === "debug_capture"

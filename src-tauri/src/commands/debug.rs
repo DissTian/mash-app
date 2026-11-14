@@ -25,8 +25,10 @@ use crate::{
 };
 
 mod capture;
+mod flow;
 mod session;
 pub use capture::*;
+pub use flow::*;
 
 use session::{
     current_server, debug_stream_status, ensure_debug_stream_for_current_device, DebugScreenSize,

@@ -833,6 +833,22 @@ pub struct SupportDiagnostics {
     pub timings: Option<serde_json::Value>,
 }
 
+/// Result of a fast region probe (`probe_template`): a single UI template
+/// matched inside a normalized region, used to poll for button readiness every
+/// 10-30 ms instead of sleeping a fixed second.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProbeTemplateResult {
+    #[serde(default)]
+    pub found: bool,
+    #[serde(default)]
+    pub score: f64,
+    #[serde(default)]
+    pub x: f64,
+    #[serde(default)]
+    pub y: f64,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FindSupportsResult {

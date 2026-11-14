@@ -5,6 +5,8 @@ mod commands;
 mod craft_essence_enhancement_runner;
 mod device_operation;
 mod enhancement_runner;
+#[cfg(any(test, debug_assertions, feature = "flow-trace"))]
+mod flow_trace;
 mod formation_share;
 mod friend_point_summon_runner;
 mod models;
@@ -98,6 +100,8 @@ pub fn run() {
             app.manage(Mutex::new(EnhancementRunnerHandle::new_idle()));
             app.manage(Mutex::new(ServantEnhancementQueueStore::load(app.handle())));
             app.manage(Mutex::new(ServantEnhancementRunnerHandle::new_idle()));
+            #[cfg(any(debug_assertions, feature = "flow-trace"))]
+            app.manage(Mutex::new(flow_trace::FlowTrace::new()));
             app.manage(Mutex::new(CraftEssenceEnhancementRunnerHandle::new_idle()));
             app.manage(Mutex::new(FriendPointSummonRunnerHandle::new_idle()));
             app.manage(DeviceOperationCoordinator::default());
@@ -299,6 +303,10 @@ pub fn run() {
             commands::debug::debug_find_attack_button,
             commands::debug::debug_read_battle_scene,
             commands::debug::debug_find_supports,
+            commands::debug::flow_trace_start,
+            commands::debug::flow_trace_stop,
+            commands::debug::flow_trace_clear,
+            commands::debug::flow_trace_snapshot,
             commands::debug::debug_list_servant_assets,
             commands::debug::warm_sidecar,
             commands::bench::bench_list_cases,
