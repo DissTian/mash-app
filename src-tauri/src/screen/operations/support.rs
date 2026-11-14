@@ -22,6 +22,7 @@ impl SidecarClient {
         include_support_details: bool,
         support_full_list_ocr_fallback: bool,
         match_any_servant: bool,
+        collect_timings: bool,
     ) -> Result<FindSupportsResult, CvError> {
         let mut req = request(
             SidecarCommand::FindSupports,
@@ -34,6 +35,7 @@ impl SidecarClient {
                 "includeSupportDetails": include_support_details,
                 "supportFullListOcrFallback": support_full_list_ocr_fallback,
                 "matchAnyServant": match_any_servant,
+                "timings": collect_timings,
             }),
         )?;
         Self::add_image_path(&mut req, image_path);

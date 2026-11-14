@@ -20,6 +20,7 @@ interface HomePageProps {
   onOpenCraftEssenceEnhancement: () => void;
   onOpenRankUpQuest: () => void;
   onOpenServantEnhancement: () => void;
+  onOpenBench?: () => void;
 }
 
 export function HomePage({
@@ -36,6 +37,7 @@ export function HomePage({
   onOpenCraftEssenceEnhancement,
   onOpenRankUpQuest,
   onOpenServantEnhancement,
+  onOpenBench,
 }: HomePageProps) {
   const [battleMenuOpen, setBattleMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -115,6 +117,18 @@ export function HomePage({
 
   return (
     <main className="home-page">
+      {onOpenBench && (
+        <Button
+          type="button"
+          className="home-bench-button"
+          variant="ghost"
+          color="gray"
+          size="1"
+          onClick={onOpenBench}
+        >
+          测试
+        </Button>
+      )}
       <div className="home-panel">
         <div className="home-figure-area">
           <div className="home-figure-trigger">

@@ -112,6 +112,7 @@ pub fn run() {
             app.manage(commands::projects::FormationSharePreviews::default());
             app.manage(Arc::new(ResourceDownloadCancelState::default()));
             app.manage(commands::debug::DebugSidecar::new());
+            app.manage(commands::bench::BenchState::default());
             app.manage(commands::rank_up_quest::RankUpQuestCaptureState::default());
             Ok(())
         })
@@ -300,6 +301,13 @@ pub fn run() {
             commands::debug::debug_find_supports,
             commands::debug::debug_list_servant_assets,
             commands::debug::warm_sidecar,
+            commands::bench::bench_list_cases,
+            commands::bench::bench_list_presets,
+            commands::bench::bench_get_status,
+            commands::bench::bench_get_runs,
+            commands::bench::bench_clear_runs,
+            commands::bench::bench_cancel,
+            commands::bench::bench_run_preset,
             commands::catalog::get_servant_metadata,
         ])
         .run(tauri::generate_context!())

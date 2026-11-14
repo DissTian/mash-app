@@ -1832,10 +1832,26 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
     face_threshold = float(cmd.get("faceThreshold", cmd.get("threshold", 0.85)))
     template_paths = [str(p) for p in cmd.get("faceTemplatePaths", []) if p]
     template_size = cmd.get("templateSize")
+    if not template_size:
+        # Match the desktop runner: the face assets are authored at the 2560
+        # reference width, so derive the pixel size from the frame actually
+        # being recognised instead of assuming the reference resolution.
+        frame_h, frame_w = img.shape[:2]
+        template_size = {
+            "w": max(64, int(round(frame_w * 223 / 2560))),
+            "h": max(64, int(round(frame_h * 223 / 1440))),
+        }
     template_crop = cmd.get("templateCrop")
     mask_region = cmd.get("maskRegion")
+    direct_search_threshold = cmd.get("directSearchThreshold")
+    collect_timings = bool(cmd.get("timings"))
+    started_total = time.monotonic() if collect_timings else 0.0
 
+    grid_started = time.monotonic() if collect_timings else 0.0
     grid = _find_item_grid(img, cmd)
+    grid_ms = (time.monotonic() - grid_started) * 1000.0 if collect_timings else 0.0
+    template_ms = 0.0
+    match_ms = 0.0
     anchors = grid["anchors"]
     cells = grid["gridCells"]
     reference_anchor = grid["referenceAnchor"]
@@ -1845,6 +1861,7 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
     best: Optional[dict] = None
     if not grid_fail_reason and template_paths:
         for template_path in template_paths:
+            template_started = time.monotonic() if collect_timings else 0.0
             raw = _read_template_image(template_path, cv2.IMREAD_GRAYSCALE)
             tmpl = _resize_template(raw, template_size)
             tmpl = _crop_template(tmpl, template_crop)
@@ -1853,10 +1870,20 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
                 if mask_region
                 else None
             )
+            if collect_timings:
+                template_ms += (time.monotonic() - template_started) * 1000.0
             for cell in cells:
+                match_started = time.monotonic() if collect_timings else 0.0
                 scored = _score_template_region(
                     img, tmpl, cell["region"], face_threshold, mask=template_mask
                 )
+                elapsed_ms = (
+                    (time.monotonic() - match_started) * 1000.0
+                    if collect_timings
+                    else 0.0
+                )
+                if collect_timings:
+                    match_ms += elapsed_ms
                 item = {
                     "template": os.path.basename(template_path),
                     "templatePath": template_path,
@@ -1868,6 +1895,8 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
                     "y": float(scored["y"]),
                     "region": scored["region"],
                 }
+                if collect_timings:
+                    item["elapsedMs"] = round(elapsed_ms, 1)
                 matches.append(item)
                 if best is None:
                     best = item
@@ -1885,9 +1914,16 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
     # crop across the list when grid matching misses; keep a stricter threshold
     # than the filtered grid because this searches many more candidate pixels.
     direct_attempted = _current_server == "CN" and not found and bool(template_paths)
-    direct_threshold = max(0.85, face_threshold)
+    if direct_search_threshold is None:
+        direct_threshold = max(0.85, face_threshold)
+    else:
+        # Debug / tuning callers may search below the production floor.
+        direct_threshold = max(0.0, min(1.0, float(direct_search_threshold)))
+    direct_ms = 0.0
     if direct_attempted:
+        direct_started = time.monotonic() if collect_timings else 0.0
         for template_path in template_paths:
+            direct_template_started = time.monotonic() if collect_timings else 0.0
             raw = _read_template_image(template_path, cv2.IMREAD_GRAYSCALE)
             tmpl = _crop_template(_resize_template(raw, template_size), template_crop)
             template_mask = (
@@ -1909,10 +1945,16 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
                 "y": float(scored["y"]),
                 "region": scored["region"],
             }
+            if collect_timings:
+                item["elapsedMs"] = round(
+                    (time.monotonic() - direct_template_started) * 1000.0, 1
+                )
             matches.append(item)
             if best is None or item["score"] > float(best["score"]) + 1e-9:
                 best = item
         found = bool(best and best.get("found"))
+        if collect_timings:
+            direct_ms = (time.monotonic() - direct_started) * 1000.0
 
     fail_reason = None
     if not found:
@@ -1923,6 +1965,28 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
         else:
             fail_reason = "face_below_threshold"
 
+    diagnostics = {
+        "failReason": fail_reason,
+        "anchorTemplateKey": anchor_key,
+        "anchorEdgeThreshold": edge_threshold,
+        "anchorGrayThreshold": gray_threshold,
+        "faceThreshold": face_threshold,
+        "directSearchAttempted": direct_attempted,
+        "directSearchThreshold": direct_threshold if direct_attempted else None,
+        "matchMethod": "direct" if best and best["row"] is None else "grid",
+        "gridFailReason": grid_fail_reason,
+        "region": dict(region),
+        "anchorCount": len(anchors),
+        "gridCellCount": len(cells),
+    }
+    if collect_timings:
+        diagnostics["timings"] = {
+            "gridMs": round(grid_ms, 1),
+            "templateMs": round(template_ms, 1),
+            "matchMs": round(match_ms, 1),
+            "directSearchMs": round(direct_ms, 1),
+            "totalMs": round((time.monotonic() - started_total) * 1000.0, 1),
+        }
     return {
         "found": found,
         "x": float(best["x"]) if best else 0.0,
@@ -1933,20 +1997,8 @@ def _find_enhancement_servant_grid(img: np.ndarray, cmd: dict) -> dict:
         "referenceAnchor": reference_anchor,
         "gridCells": cells,
         "matches": matches,
-        "diagnostics": {
-            "failReason": fail_reason,
-            "anchorTemplateKey": anchor_key,
-            "anchorEdgeThreshold": edge_threshold,
-            "anchorGrayThreshold": gray_threshold,
-            "faceThreshold": face_threshold,
-            "directSearchAttempted": direct_attempted,
-            "directSearchThreshold": direct_threshold if direct_attempted else None,
-            "matchMethod": "direct" if best and best["row"] is None else "grid",
-            "gridFailReason": grid_fail_reason,
-            "region": dict(region),
-            "anchorCount": len(anchors),
-            "gridCellCount": len(cells),
-        },
+        "templateSize": template_size,
+        "diagnostics": diagnostics,
     }
 
 
@@ -5058,7 +5110,7 @@ def _support_full_list_ocr(ocr: Any, crop: np.ndarray):
     return ocr(crop)
 
 
-def _find_supports(
+def _find_supports_impl(
     img: np.ndarray,
     list_region: dict,
     expected_name: str,
@@ -5073,6 +5125,7 @@ def _find_supports(
     support_full_list_ocr_fallback: bool = False,
     _force_full_list_ocr: bool = False,
     match_any_servant: bool = False,
+    collect_timings: bool = False,
 ) -> dict:
     """OCR the support-select list region and return matched support rows.
 
@@ -5143,6 +5196,7 @@ def _find_supports(
         "grandIconAnchorScores": [],
         **_support_diagnostics_meta(),
     }
+    details_ms = 0.0
     if h == 0 or w == 0:
         return {"supports": [], "diagnostics": diag}
 
@@ -5182,6 +5236,7 @@ def _find_supports(
         }
 
     used_anchor_row_ocr = False
+    ocr_started = time.monotonic() if collect_timings else 0.0
     if _force_full_list_ocr:
         # Shape/template anchor detection can be unavailable on old resource
         # bundles or unusual layouts. Preserve the proven whole-list detector
@@ -5202,6 +5257,10 @@ def _find_supports(
             # as a correctness fallback instead of turning those pages into an
             # unconditional miss.
             raw, _ = _support_full_list_ocr(ocr, crop)
+    if collect_timings:
+        diag["timings"] = {
+            "ocrMs": round((time.monotonic() - ocr_started) * 1000.0, 1),
+        }
     if not raw:
         return {"supports": [], "diagnostics": diag}
 
@@ -5227,6 +5286,7 @@ def _find_supports(
                 False,
                 True,
                 match_any_servant,
+                collect_timings,
             )
         return result
 
@@ -5400,7 +5460,10 @@ def _find_supports(
         rows.sort(key=lambda row: row["rowRegion"]["y"])
         _support_attach_score_anchors(img, rows, confirm_anchors)
         if include_support_details:
-            _support_add_details(img, rows, fragments)
+            details_ms += _support_add_details(
+                img, rows, fragments, collect_timings=collect_timings
+            )
+        _support_finish_timings(diag, details_ms, collect_timings)
         return fallback_to_full_list({"supports": rows, "diagnostics": diag})
 
     # Name-only fallback. We synthesize one row per above-threshold name
@@ -5469,7 +5532,10 @@ def _find_supports(
         rows.sort(key=lambda s: s["rowRegion"]["y"])
         _support_attach_score_anchors(img, rows, confirm_anchors)
         if include_support_details:
-            _support_add_details(img, rows, fragments)
+            details_ms += _support_add_details(
+                img, rows, fragments, collect_timings=collect_timings
+            )
+        _support_finish_timings(diag, details_ms, collect_timings)
         return {"supports": rows, "diagnostics": diag}
 
     # Greedy proximity pairing. Sort name candidates strongest-first so the
@@ -5539,8 +5605,65 @@ def _find_supports(
     supports.sort(key=lambda s: s["rowRegion"]["y"])
     _support_attach_score_anchors(img, supports, confirm_anchors)
     if include_support_details:
-        _support_add_details(img, supports, fragments)
+        details_ms += _support_add_details(
+            img, supports, fragments, collect_timings=collect_timings
+        )
+    _support_finish_timings(diag, details_ms, collect_timings)
     return fallback_to_full_list({"supports": supports, "diagnostics": diag})
+
+
+def _support_finish_timings(
+    diag: dict, details_ms: float, collect_timings: bool
+) -> None:
+    if not collect_timings:
+        return
+    timings = diag.get("timings") or {}
+    timings["detailsMs"] = round(details_ms, 1)
+    diag["timings"] = timings
+
+
+def _find_supports(
+    img: np.ndarray,
+    list_region: dict,
+    expected_name: str,
+    expected_np_names: list[str],
+    name_threshold: float,
+    np_threshold: float,
+    pair_dy: float,
+    include_support_details: bool = False,
+    expected_names: Optional[list[str]] = None,
+    excluded_names: Optional[list[str]] = None,
+    require_np_match: bool = False,
+    support_full_list_ocr_fallback: bool = False,
+    _force_full_list_ocr: bool = False,
+    match_any_servant: bool = False,
+    collect_timings: bool = False,
+) -> dict:
+    """Timing wrapper around the recognition pipeline (debug-only totals)."""
+    started = time.monotonic() if collect_timings else 0.0
+    result = _find_supports_impl(
+        img,
+        list_region,
+        expected_name,
+        expected_np_names,
+        name_threshold,
+        np_threshold,
+        pair_dy,
+        include_support_details,
+        expected_names,
+        excluded_names,
+        require_np_match,
+        support_full_list_ocr_fallback,
+        _force_full_list_ocr,
+        match_any_servant,
+        collect_timings,
+    )
+    if collect_timings:
+        diagnostics = result.setdefault("diagnostics", {})
+        timings = diagnostics.get("timings") or {}
+        timings["totalMs"] = round((time.monotonic() - started) * 1000.0, 1)
+        diagnostics["timings"] = timings
+    return result
 
 
 def _support_parse_np_level_text(text: str) -> Optional[int]:
@@ -6468,8 +6591,21 @@ def _support_extract_skill_details_with_diagnostics(
     return "owned", levels, [], infos
 
 
-def _support_add_details(img: np.ndarray, rows: list[dict], fragments: list[dict]) -> None:
+def _support_add_details(
+    img: np.ndarray,
+    rows: list[dict],
+    fragments: list[dict],
+    *,
+    collect_timings: bool = False,
+) -> float:
+    """Read the per-row score/skill panel details.
+
+    Returns the accumulated milliseconds so ``_find_supports`` can report the
+    list's per-row cost breakdown when timing collection is enabled.
+    """
+    total_ms = 0.0
     for row in rows:
+        started = time.monotonic() if collect_timings else 0.0
         row_region = row.get("rowRegion") or {}
         score_anchor = row.get("scoreAnchor")
         if score_anchor:
@@ -6485,6 +6621,11 @@ def _support_add_details(img: np.ndarray, rows: list[dict], fragments: list[dict
         row["skillLevels"] = skill_levels
         row["appendSkillLevels"] = append_levels
         row["skillLevelDiagnostics"] = skill_diagnostics
+        if collect_timings:
+            elapsed_ms = (time.monotonic() - started) * 1000.0
+            total_ms += elapsed_ms
+            row["elapsedMs"] = round(elapsed_ms, 1)
+    return total_ms
 
 
 # ---------------------------------------------------------------------------
@@ -7592,6 +7733,7 @@ def _main_repl() -> None:
                             bool(cmd.get("supportFullListOcrFallback", False)),
                             False,
                             bool(cmd.get("matchAnyServant", False)),
+                            bool(cmd.get("timings", False)),
                         ),
                     )
             elif action == "ocr_region":

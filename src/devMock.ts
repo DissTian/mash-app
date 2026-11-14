@@ -883,6 +883,35 @@ async function invokeLegacyDevMock<T>(cmd: string, args: InvokeArgs = {}): Promi
       return servants.map((servant) => servant.id) as T;
     case "debug_runner_coordinates":
       return { groups: [] } as T;
+    case "bench_list_presets":
+      return [
+        {
+          id: "basic.performance",
+          name: "基础性能",
+          description: "ADB 响应、截图、取帧、OCR、模板匹配的基础耗时；不依赖游戏当前画面",
+          caseIds: ["adb.connect", "adb.command", "ocr.full_frame"],
+          deviceInput: false,
+          estimatedSeconds: 45,
+        },
+        {
+          id: "device.input",
+          name: "设备输入",
+          description: "ADB 点击注入耗时（会真实点击设备，需要勾选允许）",
+          caseIds: ["adb.tap"],
+          deviceInput: true,
+          estimatedSeconds: 5,
+        },
+      ] as T;
+    case "bench_list_cases":
+      return [] as T;
+    case "bench_get_status":
+      return { running: false, currentCase: null, completed: 0, total: 0 } as T;
+    case "bench_get_runs":
+      return [] as T;
+    case "bench_run_preset":
+    case "bench_clear_runs":
+    case "bench_cancel":
+      return null as T;
     case "get_servant_metadata": {
       const servant =
         servants.find(

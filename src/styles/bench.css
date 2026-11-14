@@ -1,0 +1,99 @@
+.bench-page .bench-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bench-preset-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.bench-preset {
+  padding: 10px 12px;
+  border: 1px solid var(--gray-5);
+  border-radius: var(--radius-3);
+  background: var(--gray-2);
+}
+
+.bench-preset-copy {
+  min-width: 0;
+}
+
+.bench-allow-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.bench-progress {
+  padding-top: 4px;
+}
+
+.bench-results-scroll {
+  overflow: auto;
+  max-height: 46vh;
+  border: 1px solid var(--gray-5);
+  border-radius: var(--radius-3);
+}
+
+.bench-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bench-table th,
+.bench-table td {
+  padding: 6px 10px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--gray-4);
+}
+
+.bench-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--gray-3);
+  color: var(--gray-11);
+  font-weight: 500;
+}
+
+.bench-table td.bench-note {
+  max-width: 320px;
+  white-space: normal;
+  color: var(--gray-11);
+}
+
+.bench-row-skipped td {
+  color: var(--gray-9);
+}
+
+.bench-history {
+  padding-top: 10px;
+  border-top: 1px solid var(--gray-4);
+}
+
+.bench-notice {
+  padding: 10px 12px;
+  border: 1px solid var(--gray-6);
+  border-radius: var(--radius-3);
+  background: var(--gray-2);
+}
+
+.bench-notice-error {
+  border-color: var(--red-6);
+  background: var(--red-2);
+}
+
+.home-bench-button {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  z-index: 3;
+  letter-spacing: 0.08em;
+}

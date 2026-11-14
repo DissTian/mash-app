@@ -15,6 +15,7 @@
 @import "./status-and-battle.css";
 @import "./enhancement/index.css";
 @import "./debug.css";
+@import "./bench.css";
 @import "./rank-up-quest.css";
 @import "./command/index.css";
 @import "./page-header.css";

@@ -123,6 +123,7 @@ impl Runner {
                 include_support_details,
                 support_full_list_ocr_fallback,
                 false,
+                false,
             )
             .recoverable()?
         {
@@ -388,6 +389,7 @@ impl Runner {
                 false,
                 support_full_list_ocr_fallback,
                 true,
+                false,
             )
             .recoverable()?
         {

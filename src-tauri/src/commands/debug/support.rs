@@ -199,6 +199,7 @@ pub fn debug_find_supports(
         true,
         support_full_list_ocr_fallback,
         false,
+        true,
     );
     let release_result = client.release_ocr();
     let result = find_result?;

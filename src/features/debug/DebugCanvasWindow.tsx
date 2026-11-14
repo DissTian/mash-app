@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Flex, Text } from "@radix-ui/themes";
+import { Flex } from "@radix-ui/themes";
 import { listen, emit } from "../../tauri";
 import { DebugCanvas, type DebugCanvasState } from "./DebugCanvas";
 
@@ -64,18 +64,6 @@ export function DebugCanvasWindow() {
         boxSizing: "border-box",
       }}
     >
-      <Flex
-        justify="between"
-        align="center"
-        style={{ padding: "0 4px 6px", flexShrink: 0 }}
-      >
-        <Text size="2" weight="medium">
-          调试画面 (popout)
-        </Text>
-        <Text size="1" color="gray">
-          实时跟随主窗口 · 点击主窗口的按钮即可刷新
-        </Text>
-      </Flex>
       <DebugCanvas
         {...state}
         className="debug-canvas-popout"

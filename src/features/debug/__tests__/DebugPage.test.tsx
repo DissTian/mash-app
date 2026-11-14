@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithTheme } from "../../../test/renderWithTheme";
 import { DebugPage } from "../DebugPage";
@@ -60,6 +60,17 @@ const CRAFT_ESSENCES: CraftEssence[] = [
 ];
 
 describe("DebugPage", () => {
+  // The page remembers its last view/inputs in localStorage; clear it so one
+  // test switching to the canvas view cannot change another test's start state.
+  beforeEach(() => {
+    try {
+      window.localStorage?.removeItem("mash.debugPagePrefs.v1");
+      window.localStorage?.removeItem("mash.debugCanvasMaskOpacity.v1");
+    } catch {
+      // Some runners do not provide localStorage; nothing to clear.
+    }
+  });
+
   function renderDebugPage() {
     renderWithTheme(
       <DebugPage
@@ -334,6 +345,7 @@ describe("DebugPage", () => {
               grandStarMapScore: 16,
               scoreText: "62/+16",
               scoreFilterPassed: true,
+              elapsedMs: 321,
             },
           ],
           diagnostics: {
@@ -378,6 +390,7 @@ describe("DebugPage", () => {
         variantKey: "418:1",
       })
     );
+    expect(await screen.findByText(/tap \(0\.700, 0\.300\) · 321 ms/)).toBeInTheDocument();
     expect(invoke).toHaveBeenCalledWith(
       "debug_find_supports",
       expect.objectContaining({
@@ -472,5 +485,132 @@ describe("DebugPage", () => {
         "命中: shared/test | score=0.998 | 中心=(0.888, 0.145)"
       )
     ).toBeInTheDocument();
+    // 调试构建下，匹配历史会附带这一步的耗时。
+    expect(screen.getByText(/阈值 0\.80 · \d+ ms/)).toBeInTheDocument();
+  });
+
+  it("switches between the embedded canvas and the option rows", async () => {
+    mockDebugPageBootstrap(() => null);
+    const user = userEvent.setup();
+    renderDebugPage();
+
+    const body = () =>
+      document.querySelector(".debug-body") as HTMLElement | null;
+
+    expect(await screen.findByText("原始模板探针")).toBeInTheDocument();
+    expect(screen.queryByText("点击 截取画面 开始")).not.toBeInTheDocument();
+    expect(body()?.classList.contains("debug-body-canvas")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "调试画面" }));
+    expect(screen.getByText("点击 截取画面 开始")).toBeInTheDocument();
+    expect(body()?.classList.contains("debug-body-canvas")).toBe(true);
+    // 选项行保持挂载（折叠状态不丢），由 CSS 在画面视图里隐藏。
+    expect(screen.getByText("原始模板探针")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "工具" }));
+    expect(body()?.classList.contains("debug-body-canvas")).toBe(false);
+    expect(screen.queryByText("点击 截取画面 开始")).not.toBeInTheDocument();
+  });
+
+  it("shows per-step timing and the total after a recognition step", async () => {
+    mockDebugPageBootstrap((cmd) =>
+      cmd === "debug_capture"
+        ? { imagePath: "/tmp/shot.jpg", screen: "Unknown", score: 0.1 }
+        : null,
+    );
+    const user = userEvent.setup();
+    renderDebugPage();
+
+    await user.click(screen.getByRole("button", { name: "截取画面" }));
+
+    const timingSection = (
+      await screen.findByText("识别耗时")
+    ).closest(".debug-section") as HTMLElement;
+    expect(timingSection).not.toBeNull();
+    expect(within(timingSection).getByText("截取画面")).toBeInTheDocument();
+    expect(within(timingSection).getByText("合计")).toBeInTheDocument();
+    expect(within(timingSection).getAllByText(/\d+ ms/).length).toBeGreaterThan(0);
+  });
+
+  it("runs enhancement face matching with the debug-only options", async () => {
+    const matchResult = {
+      servantId: 150,
+      searchRegion: { x: 0.05, y: 0.18, w: 0.78, h: 0.76 },
+      templateCrop: { x: 0.195, y: 0.265, w: 0.805, h: 0.438 },
+      templateSize: { w: 167, h: 167 },
+      threshold: 0.6,
+      found: false,
+      x: 0,
+      y: 0,
+      score: 0.42,
+      best: null,
+      anchors: [],
+      referenceAnchor: null,
+      gridCells: [],
+      matches: [
+        {
+          template: "face_servant_1.png",
+          templatePath: "/tmp/face_servant_1.png",
+          row: 0,
+          col: 1,
+          found: false,
+          score: 0.42,
+          x: 0,
+          y: 0,
+          region: { x: 0.2, y: 0.2, w: 0.1, h: 0.1 },
+          elapsedMs: 12.5,
+        },
+      ],
+      diagnostics: {
+        anchorTemplateKey: "text_servant_avatar_bottom_line",
+        anchorEdgeThreshold: 0.5,
+        anchorGrayThreshold: 0.85,
+        faceThreshold: 0.6,
+        anchorCount: 0,
+        gridCellCount: 0,
+        attempts: 1,
+        matchMethod: "direct",
+        directSearchThreshold: 0.6,
+        failReason: "no_anchors",
+      },
+    };
+    mockDebugPageBootstrap((cmd) =>
+      cmd === "debug_find_enhancement_servant" ? matchResult : null,
+    );
+    const user = userEvent.setup();
+    renderDebugPage();
+
+    await user.click(screen.getByRole("button", { name: "选择从者" }));
+    await user.click(await screen.findByRole("option", { name: /梅林/ }));
+    await user.click(
+      screen.getByRole("checkbox", { name: "2EXP（左下角裁剪）" }),
+    );
+    await user.click(screen.getByRole("checkbox", { name: "使用实时帧" }));
+    await user.click(screen.getByRole("button", { name: "识别强化从者" }));
+
+    expect(invoke).toHaveBeenCalledWith("debug_find_enhancement_servant", {
+      servantId: 150,
+      threshold: 0.6,
+      twoExp: true,
+      useLiveFrame: true,
+      directSearchThreshold: 0.6,
+    });
+    expect(await screen.findByText(/method direct/)).toBeInTheDocument();
+    expect(screen.getByText(/模板缩放: 167 × 167/)).toBeInTheDocument();
+    expect(screen.getByText(/· 12\.5 ms/)).toBeInTheDocument();
+  });
+
+  it("explains an option row from its question button", async () => {
+    mockDebugPageBootstrap(() => null);
+    const user = userEvent.setup();
+    renderDebugPage();
+
+    await user.click(
+      await screen.findByRole("button", { name: "原始模板探针 功能说明" })
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "原始模板探针" })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/输入模板 key 与阈值后点「查找」/)).toBeInTheDocument();
   });
 });

@@ -511,6 +511,8 @@ impl EnhancementRunner {
                 0.85,
                 1.2,
                 None,
+                None,
+                false,
             )
             .recoverable()?
         {

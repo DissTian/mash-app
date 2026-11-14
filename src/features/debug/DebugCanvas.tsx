@@ -1,4 +1,5 @@
-import { Box, Flex, Text } from "@radix-ui/themes";
+import { Box, Flex, Slider, Text } from "@radix-ui/themes";
+import { useEffect, useRef, useState } from "react";
 import screenshotRegionConfig from "../../../sidecar/cv-code/mash_cv/assets/digit_classifier/screenshot-regions-v1.json";
 import type {
   AttackButtonResultDto,
@@ -11,6 +12,30 @@ import type {
   RunnerCoordinatesDto,
   SupportCeArtworkCheckDto,
 } from "./debugTypes";
+
+/** Wrapper padding per side, mirrored by `styles/debug.css`. */
+const CANVAS_WRAPPER_PADDING = 12;
+const DEFAULT_CANVAS_ASPECT = 16 / 9;
+const MASK_OPACITY_STORAGE_KEY = "mash.debugCanvasMaskOpacity.v1";
+
+function readMaskOpacity(): number {
+  try {
+    const raw = window.localStorage.getItem(MASK_OPACITY_STORAGE_KEY);
+    const value = raw == null ? 0 : Number(raw);
+    if (!Number.isFinite(value)) return 0;
+    return Math.min(100, Math.max(0, Math.round(value)));
+  } catch {
+    return 0;
+  }
+}
+
+function writeMaskOpacity(value: number) {
+  try {
+    window.localStorage.setItem(MASK_OPACITY_STORAGE_KEY, String(value));
+  } catch {
+    // View-only preference: private mode/quota errors must never break the page.
+  }
+}
 
 function supportPanelShortLabel(panel: "owned" | "append" | null | undefined) {
   if (panel === "owned") return "持";
@@ -151,10 +176,53 @@ export function DebugCanvas({
   placeholder = "点击 截取画面 开始",
 }: DebugCanvasProps) {
   const visibleSet = new Set(visibleCoordGroups);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [fittedSize, setFittedSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const [aspectRatio, setAspectRatio] = useState(DEFAULT_CANVAS_ASPECT);
+  const [maskOpacity, setMaskOpacity] = useState(readMaskOpacity);
+
+  useEffect(() => {
+    writeMaskOpacity(maskOpacity);
+  }, [maskOpacity]);
+
+  // Fit the whole screenshot into the wrapper with an explicit pixel box so
+  // the percentage overlays land on the picture instead of a clipped container.
+  const hasImage = imageSrc !== null;
+
+  useEffect(() => {
+    const element = wrapperRef.current;
+    if (!element || !hasImage) return;
+    const measure = () => {
+      const availableWidth = element.clientWidth - CANVAS_WRAPPER_PADDING * 2;
+      const availableHeight = element.clientHeight - CANVAS_WRAPPER_PADDING * 2;
+      if (availableWidth <= 0 || availableHeight <= 0) return;
+      const width = Math.min(availableWidth, availableHeight * aspectRatio);
+      setFittedSize({ width, height: width / aspectRatio });
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [aspectRatio, hasImage]);
+
+  const handleImageLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const image = event.currentTarget;
+    if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+      setAspectRatio(image.naturalWidth / image.naturalHeight);
+    }
+    onImgLoad?.(event);
+  };
 
   if (!imageSrc) {
     return (
-      <Box className={`debug-canvas-wrapper${className ? ` ${className}` : ""}`}>
+      <Box
+        ref={wrapperRef}
+        className={`debug-canvas-wrapper${className ? ` ${className}` : ""}`}
+      >
         <Flex
           align="center"
           justify="center"
@@ -169,14 +237,29 @@ export function DebugCanvas({
   }
 
   return (
-    <Box className={`debug-canvas-wrapper${className ? ` ${className}` : ""}`}>
-      <Box className="debug-canvas">
+    <Box
+      ref={wrapperRef}
+      className={`debug-canvas-wrapper${className ? ` ${className}` : ""}`}
+    >
+      <Box
+        className="debug-canvas"
+        style={
+          fittedSize
+            ? { width: `${fittedSize.width}px`, height: `${fittedSize.height}px` }
+            : undefined
+        }
+      >
         <img
           src={imageSrc}
           alt="screenshot"
           className="debug-canvas-img"
-          onLoad={onImgLoad}
+          onLoad={handleImageLoad}
           onError={onImgError}
+        />
+        <Box
+          className="debug-canvas-mask"
+          aria-hidden="true"
+          style={{ opacity: maskOpacity / 100 }}
         />
         {probes.map((p, idx) =>
           p.match.found && p.match.region ? (
@@ -922,6 +1005,29 @@ export function DebugCanvas({
               )),
             ])}
       </Box>
+      <Flex
+        align="center"
+        gap="2"
+        className="debug-canvas-mask-control"
+        role="group"
+        aria-label="游戏画面遮罩"
+      >
+        <Text size="1" color="gray">
+          遮罩
+        </Text>
+        <Slider
+          aria-label="游戏画面遮罩透明度"
+          size="1"
+          variant="surface"
+          color="gray"
+          value={[maskOpacity]}
+          onValueChange={([value]) => setMaskOpacity(value ?? 0)}
+          className="debug-canvas-mask-slider"
+        />
+        <Text size="1" color="gray" className="debug-canvas-mask-value">
+          {maskOpacity}%
+        </Text>
+      </Flex>
     </Box>
   );
 }

@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderWithTheme } from "../../../test/renderWithTheme";
 import { DebugCanvas, type DebugCanvasState } from "../DebugCanvas";
 
@@ -398,5 +400,37 @@ describe("DebugCanvas", () => {
     expect(container.querySelectorAll(".debug-coord-region").length).toBe(1);
     expect(container.textContent?.includes("战斗 · atk")).toBe(true);
     expect(container.textContent?.includes("back")).toBe(false);
+  });
+});
+
+describe("DebugCanvas mask control", () => {
+  it("renders a zero-opacity mask and the opacity control by default", () => {
+    const { container } = renderWithTheme(
+      <DebugCanvas {...makeState({ imageSrc: "data:image/png;base64,abc" })} />
+    );
+    const mask = container.querySelector(".debug-canvas-mask");
+    expect(mask).not.toBeNull();
+    expect(mask).toHaveStyle({ opacity: "0" });
+    expect(screen.getByText("0%")).toBeInTheDocument();
+    expect(
+      screen.getByRole("group", { name: "游戏画面遮罩" })
+    ).toBeInTheDocument();
+  });
+
+  it("darkens the game frame when the opacity slider is raised", async () => {
+    const user = userEvent.setup();
+    const { container } = renderWithTheme(
+      <DebugCanvas {...makeState({ imageSrc: "data:image/png;base64,abc" })} />
+    );
+    const mask = container.querySelector(".debug-canvas-mask");
+    expect(mask).toHaveStyle({ opacity: "0" });
+
+    const slider = container.querySelector('[role="slider"]') as HTMLElement | null;
+    expect(slider).not.toBeNull();
+    slider?.focus();
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+
+    expect(mask).not.toHaveStyle({ opacity: "0" });
+    expect(screen.queryByText("0%")).not.toBeInTheDocument();
   });
 });

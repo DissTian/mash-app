@@ -53,13 +53,13 @@ const BUTTON_LUMA_REGION: NormRect = NormRect {
     w: 0.035,
     h: 0.06,
 };
-const SERVANT_LIST_REGION: NormRect = NormRect {
+pub(crate) const SERVANT_LIST_REGION: NormRect = NormRect {
     x: 0.05,
     y: 0.18,
     w: 0.78,
     h: 0.76,
 };
-pub(super) const SERVANT_FACE_MATCH_CROP: NormRect = NormRect {
+pub(crate) const SERVANT_FACE_MATCH_CROP: NormRect = NormRect {
     x: 0.195,
     y: 0.265,
     w: 0.805,
@@ -70,7 +70,7 @@ pub(super) const SERVANT_FACE_MATCH_CROP: NormRect = NormRect {
 /// to match. The card's bottom-left corner stays clean, so 2EXP entries compare
 /// only that corner: the correct card scores 0.97 there while the runner-up
 /// card stays at 0.46, versus 0.19/0.27 with the masked centre band.
-pub(super) const TWO_EXP_FACE_MATCH_CROP: NormRect = NormRect {
+pub(crate) const TWO_EXP_FACE_MATCH_CROP: NormRect = NormRect {
     x: 0.0,
     y: 0.66,
     w: 0.30,
@@ -692,6 +692,8 @@ impl ServantEnhancementRunner {
                 threshold.max(0.72),
                 1.0,
                 None,
+                None,
+                false,
             );
             match corner {
                 Ok(result) if result.found => {
@@ -743,6 +745,8 @@ impl ServantEnhancementRunner {
                 threshold,
                 1.0,
                 None,
+                None,
+                false,
             )
             .map_err(|err| format!("头像匹配失败: {err}"))?;
         self.emit(

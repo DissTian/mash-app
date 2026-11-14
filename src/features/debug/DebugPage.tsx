@@ -23,6 +23,9 @@ import { CraftEssenceSelectDialog } from "../team/CraftEssenceSelectDialog";
 import { ServantSelectDialog } from "../team/ServantSelectDialog";
 import { DebugSection } from "./DebugSection";
 import { useDebugCanvasPopout } from "./useDebugCanvasPopout";
+import { DEBUG_SECTION_HELP } from "./debugSectionHelp";
+import { DebugHelpButton } from "./DebugHelpButton";
+import { debugTiming, useDebugTimingSnapshot } from "./debugTiming";
 import {
   BATTLE_SCENE_FAIL_HINTS,
   EMPTY_DEBUG_SELECT_VALUE,
@@ -113,6 +116,18 @@ export function DebugPage({
   defaultCardServantIds,
 }: DebugPageProps) {
   const initialPrefs = useMemo(() => readDebugPrefs(), []);
+  const timingEnabled = debugTiming.enabled;
+  const { entries: timingEntries, total: timingTotal } =
+    useDebugTimingSnapshot();
+  // Timings are a per-visit measurement ("本次合计"), not a cross-session log.
+  useEffect(() => {
+    debugTiming.clear();
+  }, []);
+  // 画面 = full-size canvas only; 工具 = the option/result rows without the
+  // inline canvas (the canvas was too short to be usable inside the column).
+  const [debugView, setDebugView] = useState<"canvas" | "tools">(
+    initialPrefs.debugView === "canvas" ? "canvas" : "tools"
+  );
   const [capture, setCapture] = useState<DebugCaptureResult | null>(null);
   const [liveFrame, setLiveFrame] = useState<DebugStreamFrameResultDto | null>(
     null
@@ -238,7 +253,13 @@ export function DebugPage({
   const [enhancementServantId, setEnhancementServantId] =
     useState<number | null>(asNumberOrNull(initialPrefs.enhancementServantId));
   const [enhancementServantThreshold, setEnhancementServantThreshold] =
-    useState(initialPrefs.enhancementServantThreshold ?? "0.85");
+    useState(initialPrefs.enhancementServantThreshold ?? "0.60");
+  const [enhancementTwoExp, setEnhancementTwoExp] = useState(
+    initialPrefs.enhancementTwoExp === true
+  );
+  const [enhancementUseLiveFrame, setEnhancementUseLiveFrame] = useState(
+    initialPrefs.enhancementUseLiveFrame === true
+  );
   const [enhancementServantResult, setEnhancementServantResult] =
     useState<EnhancementServantMatchResultDto | null>(null);
   const [findingEnhancementServant, setFindingEnhancementServant] =
@@ -340,6 +361,7 @@ export function DebugPage({
 
   useEffect(() => {
     writeDebugPrefs({
+      debugView,
       selectedScreen,
       selectedElement,
       rawTemplateInput,
@@ -357,11 +379,14 @@ export function DebugPage({
       supportGrandStarMapScoreMin,
       enhancementServantId,
       enhancementServantThreshold,
+      enhancementTwoExp,
+      enhancementUseLiveFrame,
       showDigitRecognitionRegions,
       showCoordOverlay,
       visibleCoordGroups: visibleCoordGroupIds,
     });
   }, [
+    debugView,
     selectedScreen,
     selectedElement,
     rawTemplateInput,
@@ -379,6 +404,8 @@ export function DebugPage({
     supportGrandStarMapScoreMin,
     enhancementServantId,
     enhancementServantThreshold,
+    enhancementTwoExp,
+    enhancementUseLiveFrame,
     showDigitRecognitionRegions,
     showCoordOverlay,
     visibleCoordGroupIds,
@@ -467,7 +494,9 @@ export function DebugPage({
 
   const captureFrame = useCallback(
     async (options: { logResult: boolean; clearOverlays: boolean }) => {
-      const result = await invoke<DebugCaptureResult>("debug_capture");
+      const result = await debugTiming.run("截取画面", () =>
+        invoke<DebugCaptureResult>("debug_capture")
+      );
       setCapture(result);
       setLiveFrame(null);
       setCacheBuster(Date.now());
@@ -511,7 +540,9 @@ export function DebugPage({
     setConnectingStream(true);
     log("连接 scrcpy debug 视频流…");
     try {
-      const status = await invoke<DebugStreamStatusDto>("debug_stream_connect");
+      const status = await debugTiming.run("连接视频流", () =>
+        invoke<DebugStreamStatusDto>("debug_stream_connect")
+      );
       setStreamStatus(status);
       log(
         status.screenSize
@@ -529,7 +560,9 @@ export function DebugPage({
     setDisconnectingStream(true);
     log("断开 scrcpy debug 视频流…");
     try {
-      const status = await invoke<DebugStreamStatusDto>("debug_stream_disconnect");
+      const status = await debugTiming.run("断开视频流", () =>
+        invoke<DebugStreamStatusDto>("debug_stream_disconnect")
+      );
       setStreamStatus(status);
       setDynamicCapture(false);
       setDynamicNpGaugeDebug(false);
@@ -547,6 +580,8 @@ export function DebugPage({
       const next = !enabled;
       if (next) {
         setDynamicCapturePaused(false);
+        // The tools view has no canvas, so show the frames where they render.
+        setDebugView("canvas");
       }
       log(next ? "动态画面读取已开启，每 0.2 秒刷新" : "动态画面读取已停止");
       return next;
@@ -569,9 +604,13 @@ export function DebugPage({
       if (capturePollingInFlight.current) return;
       capturePollingInFlight.current = true;
       try {
-        const frame = await invoke<DebugStreamFrameResultDto>(
-          "debug_stream_frame",
-          { detectScreen: false }
+        const frame = await debugTiming.run(
+          "动态取帧",
+          () =>
+            invoke<DebugStreamFrameResultDto>("debug_stream_frame", {
+              detectScreen: false,
+            }),
+          { replace: true }
         );
         setLiveFrame(frame);
         setStreamStatus({
@@ -603,9 +642,13 @@ export function DebugPage({
       `调用 debug_find_element_by_name (screen=${selectedScreen}, element=${selectedElement})`
     );
     try {
-      const match = await invoke<ElementMatchDto>(
-        "debug_find_element_by_name",
-        { screen: selectedScreen, element: selectedElement }
+      const { value: match, ms: probeMs } = await debugTiming.runMeasured(
+        "查找元素（按名称）",
+        () =>
+          invoke<ElementMatchDto>("debug_find_element_by_name", {
+            screen: selectedScreen,
+            element: selectedElement,
+          })
       );
       const label = `${selectedScreen}.${selectedElement}`;
       const effectiveThreshold = selectedElementSpec?.threshold ?? 0.8;
@@ -615,6 +658,7 @@ export function DebugPage({
           threshold: effectiveThreshold,
           match,
           timestamp: timestamp(),
+          elapsedMs: timingEnabled ? probeMs : undefined,
         },
         ...prev,
       ]);
@@ -633,7 +677,7 @@ export function DebugPage({
     } finally {
       setProbing(false);
     }
-  }, [selectedScreen, selectedElement, selectedElementSpec, log]);
+  }, [selectedScreen, selectedElement, selectedElementSpec, log, timingEnabled]);
 
   const handleProbeRaw = useCallback(async () => {
     const key = rawTemplateInput.trim();
@@ -641,12 +685,22 @@ export function DebugPage({
     setProbing(true);
     log(`调用 debug_find_element (templateKey=${key}, threshold=${threshold})`);
     try {
-      const match = await invoke<ElementMatchDto>("debug_find_element", {
-        templateKey: key,
-        threshold,
-      });
+      const { value: match, ms: probeMs } = await debugTiming.runMeasured(
+        "原始模板查找",
+        () =>
+          invoke<ElementMatchDto>("debug_find_element", {
+            templateKey: key,
+            threshold,
+          })
+      );
       setProbes((prev) => [
-        { label: key, threshold, match, timestamp: timestamp() },
+        {
+          label: key,
+          threshold,
+          match,
+          timestamp: timestamp(),
+          elapsedMs: timingEnabled ? probeMs : undefined,
+        },
         ...prev,
       ]);
       if (match.found) {
@@ -664,7 +718,7 @@ export function DebugPage({
     } finally {
       setProbing(false);
     }
-  }, [rawTemplateInput, threshold, log]);
+  }, [rawTemplateInput, threshold, log, timingEnabled]);
 
   const handleClearOverlays = useCallback(() => {
     setProbes([]);
@@ -762,9 +816,10 @@ export function DebugPage({
       `调用 debug_find_command_cards (servants=[${selectedCardServantIds.map(displayServantName).join(", ")}])`
     );
     try {
-      const cards = await invoke<CommandCardMatchDto[]>(
-        "debug_find_command_cards",
-        { servantIds: selectedCardServantIds }
+      const cards = await debugTiming.run("识别指令卡", () =>
+        invoke<CommandCardMatchDto[]>("debug_find_command_cards", {
+          servantIds: selectedCardServantIds,
+        })
       );
       setCommandCards(cards);
       if (cards.length === 0) {
@@ -789,10 +844,15 @@ export function DebugPage({
 
   const readNpGauges = useCallback(
     async (options: { logResult: boolean; live: boolean }) => {
-      const slots = await invoke<NoblePhantasmMatchDto[]>(
-        options.live
-          ? "debug_read_noble_phantasm_gauges_live"
-          : "debug_read_noble_phantasm_gauges"
+      const slots = await debugTiming.run(
+        options.live ? "动态宝具检测" : "读取宝具识别",
+        () =>
+          invoke<NoblePhantasmMatchDto[]>(
+            options.live
+              ? "debug_read_noble_phantasm_gauges_live"
+              : "debug_read_noble_phantasm_gauges"
+          ),
+        options.live ? { replace: true } : undefined
       );
       setNpGaugeSlots(slots);
       if (options.logResult) {
@@ -909,8 +969,8 @@ export function DebugPage({
     setReadingBattleScene(true);
     log("调用 debug_read_battle_scene");
     try {
-      const result = await invoke<BattleSceneResultDto>(
-        "debug_read_battle_scene"
+      const result = await debugTiming.run("战斗场景识别", () =>
+        invoke<BattleSceneResultDto>("debug_read_battle_scene")
       );
       setBattleScene(result);
       const anchor = `锚点 ${(result.anchorScore * 100).toFixed(1)}% (阈值 ${(
@@ -956,8 +1016,8 @@ export function DebugPage({
     setReadingBondLevelUp(true);
     log("调用 debug_read_bond_level_up");
     try {
-      const result = await invoke<BondLevelUpReadResultDto>(
-        "debug_read_bond_level_up"
+      const result = await debugTiming.run("牵绊升级识别", () =>
+        invoke<BondLevelUpReadResultDto>("debug_read_bond_level_up")
       );
       setBondLevelUpResult(result);
       const confidence = result.confidence;
@@ -990,8 +1050,8 @@ export function DebugPage({
     setFindingAttackButton(true);
     log("调用 debug_find_attack_button");
     try {
-      const result = await invoke<AttackButtonResultDto>(
-        "debug_find_attack_button"
+      const result = await debugTiming.run("攻击按钮识别", () =>
+        invoke<AttackButtonResultDto>("debug_find_attack_button")
       );
       setAttackButton(result);
       const scorePct = (result.score * 100).toFixed(1);
@@ -1019,28 +1079,39 @@ export function DebugPage({
 
   const parsedEnhancementServantThreshold = useMemo<number>(() => {
     const n = Number(enhancementServantThreshold.trim());
-    return Number.isFinite(n) && n > 0 && n <= 1 ? n : 0.72;
+    return Number.isFinite(n) && n > 0 && n <= 1 ? n : 0.60;
   }, [enhancementServantThreshold]);
 
   const handleFindEnhancementServant = useCallback(async () => {
-    if (!capture || enhancementServantId === null) return;
+    if ((!capture && !enhancementUseLiveFrame) || enhancementServantId === null) {
+      return;
+    }
     setFindingEnhancementServant(true);
     log(
       `调用 debug_find_enhancement_servant (servant=${displayServantName(enhancementServantId)}, threshold=${parsedEnhancementServantThreshold})`
     );
     try {
-      const result = await invoke<EnhancementServantMatchResultDto>(
-        "debug_find_enhancement_servant",
-        {
-          servantId: enhancementServantId,
-          threshold: parsedEnhancementServantThreshold,
-        }
+      const result = await debugTiming.run("强化从者头像识别", () =>
+        invoke<EnhancementServantMatchResultDto>(
+          "debug_find_enhancement_servant",
+          {
+            servantId: enhancementServantId,
+            threshold: parsedEnhancementServantThreshold,
+            twoExp: enhancementTwoExp,
+            useLiveFrame: enhancementUseLiveFrame,
+            directSearchThreshold: parsedEnhancementServantThreshold,
+          }
+        )
       );
       setEnhancementServantResult(result);
       const sorted = [...result.matches].sort((a, b) => b.score - a.score);
       const best = sorted[0];
       log(
-        `强化从者网格: anchors=${result.anchors.length}, cells=${result.gridCells.length}, attempts=${result.diagnostics.attempts || 1}`
+        `强化从者网格: size=${result.templateSize.w}×${result.templateSize.h} ` +
+          `anchors=${result.anchors.length} cells=${result.gridCells.length} ` +
+          `method=${result.diagnostics.matchMethod ?? "grid"} ` +
+          `直接阈值=${result.diagnostics.directSearchThreshold?.toFixed(2) ?? "-"} ` +
+          `attempts=${result.diagnostics.attempts || 1}`
       );
       if (!best) {
         log(
@@ -1072,6 +1143,8 @@ export function DebugPage({
     capture,
     enhancementServantId,
     parsedEnhancementServantThreshold,
+    enhancementTwoExp,
+    enhancementUseLiveFrame,
     displayServantName,
     log,
   ]);
@@ -1098,9 +1171,8 @@ export function DebugPage({
           `加载从者元数据: ${meta.name} · 名称 [${meta.names.join(" / ")}] · 宝具 [${meta.npNames.join(" / ")}]`
         );
       }
-      const result = await invoke<FindSupportsResultDto>(
-        "debug_find_supports",
-        {
+      const result = await debugTiming.run("识别助战", () =>
+        invoke<FindSupportsResultDto>("debug_find_supports", {
           servantId: supportServantId,
           servantVariantKey,
           craftEssenceId: supportCraftEssenceId,
@@ -1113,7 +1185,7 @@ export function DebugPage({
           supportGrandStarMapScoreMin: supportScoreGrandMode
             ? supportGrandStarMapScoreMin
             : null,
-        }
+        })
       );
       setSupportResult(result);
       const diag = result.diagnostics;
@@ -1296,7 +1368,7 @@ export function DebugPage({
     setReloading(true);
     log("重启 sidecar 并重新加载模板/配置…");
     try {
-      await invoke("debug_reload_sidecar");
+      await debugTiming.run("重启 CV/重载配置", () => invoke("debug_reload_sidecar"));
       setStreamStatus(null);
       setDynamicCapture(false);
       setDynamicNpGaugeDebug(false);
@@ -1366,23 +1438,59 @@ export function DebugPage({
           <Text size="4" weight="bold">
             CV 调试
           </Text>
+          {timingEnabled && timingTotal > 0 && (
+            <Text size="1" color="gray" className="debug-timing-header">
+              本次合计 {timingTotal} ms
+            </Text>
+          )}
         </Flex>
-        <Button
-          type="button"
-          size="2"
-          variant="surface"
-          color="gray"
-          disabled={reloading}
-          onClick={handleReloadSidecar}
-          title="重启 sidecar，并重新加载 CV 代码、cv.json 和模板"
-        >
-          <ReloadIcon width={14} height={14} />
-          <Text size="1">{reloading ? "重启中…" : "重启 CV/重载配置"}</Text>
-        </Button>
+        <Flex align="center" gap="2" wrap="wrap">
+          <Flex align="center" gap="1" className="debug-view-switch">
+            <Button
+              type="button"
+              size="2"
+              variant={debugView === "canvas" ? "solid" : "soft"}
+              color={debugView === "canvas" ? undefined : "gray"}
+              onClick={() => setDebugView("canvas")}
+              title="全屏查看截图与识别标注"
+            >
+              <Text size="1">调试画面</Text>
+            </Button>
+            <Button
+              type="button"
+              size="2"
+              variant={debugView === "tools" ? "solid" : "soft"}
+              color={debugView === "tools" ? undefined : "gray"}
+              onClick={() => setDebugView("tools")}
+              title="识别选项、结果与日志"
+            >
+              <Text size="1">工具</Text>
+            </Button>
+          </Flex>
+          <Button
+            type="button"
+            size="2"
+            variant="surface"
+            color="gray"
+            disabled={reloading}
+            onClick={handleReloadSidecar}
+            title="重启 sidecar，并重新加载 CV 代码、cv.json 和模板"
+          >
+            <ReloadIcon width={14} height={14} />
+            <Text size="1">{reloading ? "重启中…" : "重启 CV/重载配置"}</Text>
+          </Button>
+        </Flex>
       </Flex>
 
-      <Flex className="debug-body" gap="4">
-        <Flex direction="column" className="debug-canvas-col" gap="2">
+      <Flex
+        className={`debug-body${debugView === "canvas" ? " debug-body-canvas" : ""}`}
+        gap="4"
+      >
+        <Flex
+          direction="column"
+          className={`debug-canvas-col${debugView === "tools" ? " debug-canvas-col-tools" : ""}`}
+          gap="2"
+        >
           <Flex gap="2" align="center" wrap="wrap" className="debug-toolbar">
             <Button
               type="button"
@@ -1524,11 +1632,18 @@ export function DebugPage({
             >
               清除标注
             </Button>
+            <DebugHelpButton
+              title="调试工具栏"
+              help={DEBUG_SECTION_HELP.toolbar}
+              className="debug-toolbar-help"
+            />
           </Flex>
 
-          <DebugCanvas {...canvasState} />
+          {debugView === "canvas" && (
+            <DebugCanvas {...canvasState} className="debug-canvas-embedded" />
+          )}
 
-          <DebugSection title="原始模板探针">
+          <DebugSection title="原始模板探针" help={DEBUG_SECTION_HELP.rawTemplateProbe}>
             <Flex gap="2" align="center" wrap="wrap" className="debug-toolbar">
               <TextField.Root
                 className="debug-text-field"
@@ -1571,7 +1686,7 @@ export function DebugPage({
             </Flex>
           </DebugSection>
 
-          <DebugSection title="指令卡识别">
+          <DebugSection title="指令卡识别" help={DEBUG_SECTION_HELP.commandCardsInput}>
             <Flex gap="2" align="center" wrap="wrap" className="debug-toolbar">
               <Flex align="center" gap="1" wrap="wrap" className="debug-servant-choice-list">
                 {selectedCardServantIds.length === 0 ? (
@@ -1623,7 +1738,7 @@ export function DebugPage({
             </Flex>
           </DebugSection>
 
-          <DebugSection title="宝具调试">
+          <DebugSection title="宝具调试" help={DEBUG_SECTION_HELP.npDebugInput}>
             <Flex gap="2" align="center" wrap="wrap" className="debug-toolbar">
               <Button
                 type="button"
@@ -1648,6 +1763,7 @@ export function DebugPage({
 
           <DebugSection
             title="强化从者头像识别"
+            help={DEBUG_SECTION_HELP.enhancementServantInput}
             badge={
               enhancementServantResult
                 ? `#${enhancementServantResult.servantId}`
@@ -1675,12 +1791,30 @@ export function DebugPage({
                 onChange={(e) => setEnhancementServantThreshold(e.target.value)}
                 title="强化从者头像匹配阈值"
               />
+              <label className="debug-coord-toggle">
+                <Checkbox
+                  checked={enhancementTwoExp}
+                  onCheckedChange={(checked) =>
+                    setEnhancementTwoExp(checked === true)
+                  }
+                />
+                <Text size="1">2EXP（左下角裁剪）</Text>
+              </label>
+              <label className="debug-coord-toggle">
+                <Checkbox
+                  checked={enhancementUseLiveFrame}
+                  onCheckedChange={(checked) =>
+                    setEnhancementUseLiveFrame(checked === true)
+                  }
+                />
+                <Text size="1">使用实时帧</Text>
+              </label>
               <Button
                 type="button"
                 size="1"
                 disabled={
                   findingEnhancementServant ||
-                  !capture ||
+                  (!capture && !enhancementUseLiveFrame) ||
                   enhancementServantId === null
                 }
                 onClick={handleFindEnhancementServant}
@@ -1688,13 +1822,14 @@ export function DebugPage({
                 {findingEnhancementServant ? "识别中…" : "识别强化从者"}
               </Button>
               <Text size="2" color="gray">
-                使用生产逻辑的从者列表区域和 face crop。
+                与国服队列一致：国服列表区域、按截图缩放模板、直接搜索阈值可调。
               </Text>
             </Flex>
           </DebugSection>
 
           <DebugSection
             title="战斗场景识别"
+            help={DEBUG_SECTION_HELP.battleSceneInput}
             badge={
               battleScene && battleScene.scene !== null && battleScene.total !== null
                 ? `${battleScene.scene}/${battleScene.total}`
@@ -1720,6 +1855,7 @@ export function DebugPage({
 
           <DebugSection
             title="牵绊升级识别"
+            help={DEBUG_SECTION_HELP.bondLevelInput}
             badge={
               bondLevelUpResult
                 ? bondLevelUpResult.ok
@@ -1745,6 +1881,7 @@ export function DebugPage({
 
           <DebugSection
             title="攻击按钮识别"
+            help={DEBUG_SECTION_HELP.attackButtonInput}
             badge={
               attackButton
                 ? `${(attackButton.score * 100).toFixed(0)}% ${attackButton.found ? "✓" : "✗"}`
@@ -1768,6 +1905,7 @@ export function DebugPage({
 
           <DebugSection
             title="助战识别"
+            help={DEBUG_SECTION_HELP.supportInput}
             badge={
               supportMetadata
                 ? `${supportMetadata.name} · ${supportMetadata.npNames.length} 宝具`
@@ -1954,6 +2092,7 @@ export function DebugPage({
 
           <DebugSection
             title="数字识别区域"
+            help={DEBUG_SECTION_HELP.digitRegions}
             badge={showDigitRecognitionRegions ? "on" : "off"}
           >
             <Flex justify="between" align="center" gap="3" wrap="wrap">
@@ -1984,6 +2123,7 @@ export function DebugPage({
 
           <DebugSection
             title="坐标叠层"
+            help={DEBUG_SECTION_HELP.coordOverlay}
             badge={
               showCoordOverlay
                 ? `${visibleCoordGroups.size} / ${coordinates?.groups.length ?? 0}`
@@ -2091,8 +2231,65 @@ export function DebugPage({
             </Box>
           </Box>
 
+          {timingEnabled && (
+            <DebugSection title="识别耗时" badge={`${timingEntries.length} 项`}>
+              <Flex justify="between" align="center" gap="2">
+                <Text size="1" color="gray">
+                  单位毫秒，含 IPC 与 CV 处理
+                </Text>
+                <Button
+                  type="button"
+                  size="1"
+                  variant="surface"
+                  color="gray"
+                  disabled={timingEntries.length === 0}
+                  onClick={() => debugTiming.clear()}
+                >
+                  清空
+                </Button>
+              </Flex>
+              <Box className="debug-timing-list">
+                {timingEntries.length === 0 ? (
+                  <Text size="1" color="gray">
+                    暂无记录
+                  </Text>
+                ) : (
+                  <>
+                    {timingEntries.map((entry, index) => (
+                      <Flex
+                        key={`${entry.label}-${index}`}
+                        justify="between"
+                        gap="3"
+                        className="debug-timing-row"
+                      >
+                        <Text size="1" color="gray">
+                          {entry.label}
+                        </Text>
+                        <Text size="1" className="debug-timing-value">
+                          {entry.ms} ms
+                        </Text>
+                      </Flex>
+                    ))}
+                    <Flex
+                      justify="between"
+                      gap="3"
+                      className="debug-timing-total"
+                    >
+                      <Text size="1" weight="medium">
+                        合计
+                      </Text>
+                      <Text size="1" weight="medium">
+                        {timingTotal} ms
+                      </Text>
+                    </Flex>
+                  </>
+                )}
+              </Box>
+            </DebugSection>
+          )}
+
           {selectedElementSpec && (
-            <DebugSection title="当前元素配置">
+            <DebugSection title="当前元素配置" help={DEBUG_SECTION_HELP.selectedElementConfig}>
               <Box className="debug-screen-badge">
                 <Text size="2" weight="medium">
                   {selectedScreen}.{selectedElement}
@@ -2120,6 +2317,8 @@ export function DebugPage({
 
           <DebugSection
             title="指令卡识别"
+            help={DEBUG_SECTION_HELP.commandCardsResult}
+            timing={timingEnabled ? debugTiming.latest("识别指令卡") : undefined}
             badge={commandCards.length || undefined}
           >
             <Box className="debug-match-list">
@@ -2184,6 +2383,8 @@ export function DebugPage({
 
           <DebugSection
             title="宝具调试"
+            help={DEBUG_SECTION_HELP.npDebugResult}
+            timing={timingEnabled ? debugTiming.latest("读取宝具识别") : undefined}
             badge={
               npGaugeSlots.length > 0
                 ? `卡 ${npGaugeSlots.filter((s) => s.cardReady === true).length}/${npGaugeSlots.length} · 条 ${npGaugeSlots.filter((s) => s.npGlowReady === true).length}/${npGaugeSlots.length}`
@@ -2252,6 +2453,8 @@ export function DebugPage({
 
           <DebugSection
             title="牵绊升级识别"
+            help={DEBUG_SECTION_HELP.bondLevelResult}
+            timing={timingEnabled ? debugTiming.latest("牵绊升级识别") : undefined}
             badge={
               bondLevelUpResult
                 ? bondLevelUpResult.ok
@@ -2314,6 +2517,8 @@ export function DebugPage({
 
           <DebugSection
             title="攻击按钮识别"
+            help={DEBUG_SECTION_HELP.attackButtonResult}
+            timing={timingEnabled ? debugTiming.latest("攻击按钮识别") : undefined}
             badge={
               attackButton
                 ? `${(attackButton.score * 100).toFixed(0)}% ${attackButton.found ? "✓" : "✗"}`
@@ -2369,6 +2574,8 @@ export function DebugPage({
 
           <DebugSection
             title="强化从者头像识别"
+            help={DEBUG_SECTION_HELP.enhancementServantResult}
+            timing={timingEnabled ? debugTiming.latest("强化从者头像识别") : undefined}
             badge={
               enhancementServantResult
                 ? `${enhancementServantResult.matches.filter((m) => m.found).length}/${enhancementServantResult.matches.length}`
@@ -2412,6 +2619,26 @@ export function DebugPage({
                       ? ` · ${enhancementServantResult.diagnostics.failReason}`
                       : ""}
                   </Text>
+                  <Text size="1" color="gray">
+                    method {enhancementServantResult.diagnostics.matchMethod ?? "grid"}
+                    {enhancementServantResult.diagnostics.gridFailReason
+                      ? `（网格失败：${enhancementServantResult.diagnostics.gridFailReason}）`
+                      : ""}
+                    {" · "}直接搜索阈值{" "}
+                    {enhancementServantResult.diagnostics.directSearchThreshold?.toFixed(2) ??
+                      "0.85"}
+                  </Text>
+                  {enhancementServantResult.diagnostics.timings && (
+                    <Text size="1" color="gray">
+                      耗时：网格{" "}
+                      {enhancementServantResult.diagnostics.timings.gridMs ?? 0} ms · 模板{" "}
+                      {enhancementServantResult.diagnostics.timings.templateMs ?? 0} ms ·
+                      匹配 {enhancementServantResult.diagnostics.timings.matchMs ?? 0} ms ·
+                      直接搜索{" "}
+                      {enhancementServantResult.diagnostics.timings.directSearchMs ?? 0} ms ·
+                      合计 {enhancementServantResult.diagnostics.timings.totalMs ?? 0} ms
+                    </Text>
+                  )}
                 </Box>
               )}
               {enhancementServantResult?.referenceAnchor && (
@@ -2447,6 +2674,7 @@ export function DebugPage({
                     <Text size="1" color="gray">
                       r{m.row} c{m.col} · 阈值{" "}
                       {enhancementServantResult.threshold.toFixed(2)}
+                      {m.elapsedMs != null ? ` · ${m.elapsedMs} ms` : ""}
                       {m.region
                         ? ` · center (${m.x.toFixed(3)}, ${m.y.toFixed(3)})`
                         : ""}
@@ -2458,6 +2686,8 @@ export function DebugPage({
 
           <DebugSection
             title="助战识别"
+            help={DEBUG_SECTION_HELP.supportResult}
+            timing={timingEnabled ? debugTiming.latest("识别助战") : undefined}
             badge={supportResult?.supports.length || undefined}
           >
             <Box className="debug-match-list">
@@ -2538,6 +2768,7 @@ export function DebugPage({
                     </Text>
                     <Text size="1" color="gray">
                       tap ({s.tap.x.toFixed(3)}, {s.tap.y.toFixed(3)})
+                      {s.elapsedMs != null ? ` · ${s.elapsedMs} ms` : ""}
                     </Text>
                   </Flex>
                   <Text size="1" color="green">
@@ -2711,11 +2942,19 @@ export function DebugPage({
                   )}
                 </>
               )}
+              {supportResult?.diagnostics.timings && (
+                <Text size="1" color="gray">
+                  耗时：OCR {supportResult.diagnostics.timings.ocrMs ?? 0} ms ·
+                  逐行明细 {supportResult.diagnostics.timings.detailsMs ?? 0} ms ·
+                  合计 {supportResult.diagnostics.timings.totalMs ?? 0} ms
+                </Text>
+              )}
             </Box>
           </DebugSection>
 
           <DebugSection
             title="匹配历史"
+            help={DEBUG_SECTION_HELP.matchHistory}
             badge={probes.length || undefined}
           >
             <Box className="debug-match-list">
@@ -2740,6 +2979,7 @@ export function DebugPage({
                   <Text size="1" color={p.match.found ? "green" : "red"}>
                     {p.match.found ? "命中" : "未命中"} · score{" "}
                     {p.match.score.toFixed(3)} · 阈值 {p.threshold.toFixed(2)}
+                    {p.elapsedMs != null ? ` · ${p.elapsedMs} ms` : ""}
                   </Text>
                   {p.match.found && (
                     <Text size="1" color="gray">

@@ -251,10 +251,22 @@ pub struct ServantGridFaceMatch {
     pub region: Option<NormRect>,
     #[serde(default)]
     pub error: Option<String>,
+    /// Debug-only per-cell match duration in milliseconds.
+    #[serde(default)]
+    pub elapsed_ms: Option<f64>,
 }
 
 pub type ServantGridAnchor = ItemGridAnchor;
 pub type ServantGridCell = ItemGridCell;
+
+/// Effective pixel size of a face template after the sidecar scaled it for the
+/// frame it was matched against.
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateSize {
+    pub w: u32,
+    pub h: u32,
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -279,6 +291,18 @@ pub struct ServantGridDiagnostics {
     pub visible_cell_count: u32,
     #[serde(default)]
     pub attempts: u32,
+    /// `grid` or `direct`; populated by the sidecar.
+    #[serde(default)]
+    pub match_method: Option<String>,
+    #[serde(default)]
+    pub direct_search_attempted: bool,
+    #[serde(default)]
+    pub direct_search_threshold: Option<f64>,
+    #[serde(default)]
+    pub grid_fail_reason: Option<String>,
+    /// Debug-only phase breakdown (`gridMs`/`templateMs`/`matchMs`/...).
+    #[serde(default)]
+    pub timings: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -298,6 +322,8 @@ pub struct FindEnhancementServantGridResult {
     pub grid_cells: Vec<ItemGridCell>,
     #[serde(default)]
     pub matches: Vec<ServantGridFaceMatch>,
+    #[serde(default)]
+    pub template_size: Option<TemplateSize>,
     pub diagnostics: ServantGridDiagnostics,
 }
 
@@ -623,6 +649,9 @@ pub struct SupportRowMatch {
     /// Per-slot skill recognition diagnostics returned by the sidecar.
     #[serde(default)]
     pub skill_level_diagnostics: Vec<serde_json::Value>,
+    /// Debug-only cost of reading this row's details, in milliseconds.
+    #[serde(default)]
+    pub elapsed_ms: Option<f64>,
 }
 
 /// One OCR fragment that fuzzy-matched the expected servant-name or NP-name
@@ -793,6 +822,9 @@ pub struct SupportDiagnostics {
     /// frame edge. The sidecar classifies scores >= 0.80 as Grand.
     #[serde(default)]
     pub grand_icon_anchor_scores: Vec<Option<f64>>,
+    /// Debug-only phase breakdown (`ocrMs`/`detailsMs`/`totalMs`).
+    #[serde(default)]
+    pub timings: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -44,6 +44,8 @@ export interface ProbeResult {
   threshold: number;
   match: ElementMatchDto;
   timestamp: string;
+  /** Debug-only timing for this probe, in milliseconds. */
+  elapsedMs?: number;
 }
 
 export interface BondLevelUpConfidenceDto {
@@ -153,6 +155,8 @@ export interface EnhancementServantFaceMatchDto {
   y: number;
   region: NormRectDto | null;
   error?: string;
+  /** Per-cell match duration in milliseconds (debug builds only). */
+  elapsedMs?: number | null;
 }
 
 export interface EnhancementServantAnchorDto {
@@ -184,6 +188,13 @@ export interface EnhancementServantDiagnosticsDto {
   anchorCount: number;
   gridCellCount: number;
   attempts: number;
+  /** `grid` or `direct` — which path produced the result. */
+  matchMethod?: string | null;
+  directSearchAttempted?: boolean;
+  directSearchThreshold?: number | null;
+  gridFailReason?: string | null;
+  /** Debug-only phase breakdown: gridMs/templateMs/matchMs/directSearchMs/totalMs. */
+  timings?: Record<string, number> | null;
 }
 
 export interface EnhancementServantMatchResultDto {
@@ -321,6 +332,8 @@ export interface SupportRowMatchDto {
    */
   ce?: SupportCeInfoDto;
   grandCes?: SupportCeInfoDto[];
+  /** Per-row detail read duration in milliseconds (debug builds only). */
+  elapsedMs?: number | null;
 }
 
 export interface SupportCandidateDto {
@@ -362,6 +375,8 @@ export interface SupportDiagnosticsDto {
   // score so a non-Grand row in a partly-Grand list doesn't get
   // false-positively painted as Grand by the aggregate flag.
   grandIconAnchorScores?: (number | null)[];
+  /** Debug-only phase breakdown: ocrMs/detailsMs/totalMs. */
+  timings?: Record<string, number> | null;
 }
 
 export interface FindSupportsResultDto {

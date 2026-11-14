@@ -23,6 +23,7 @@ export const EMPTY_DEBUG_SELECT_VALUE = "__empty__";
 const DEBUG_PREFS_STORAGE_KEY = "mash.debugPagePrefs.v1";
 
 export interface DebugPagePrefs {
+  debugView?: "canvas" | "tools";
   selectedScreen?: string;
   selectedElement?: string;
   rawTemplateInput?: string;
@@ -40,6 +41,8 @@ export interface DebugPagePrefs {
   supportGrandStarMapScoreMin?: number | null;
   enhancementServantId?: number | null;
   enhancementServantThreshold?: string;
+  enhancementTwoExp?: boolean;
+  enhancementUseLiveFrame?: boolean;
   showDigitRecognitionRegions?: boolean;
   showCoordOverlay?: boolean;
   visibleCoordGroups?: string[];

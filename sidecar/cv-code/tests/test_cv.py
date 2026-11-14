@@ -2464,6 +2464,36 @@ class TestFindEnhancementServantGrid:
         assert result["anchors"] == []
         assert result["gridCells"] == []
 
+    def test_grid_reports_per_cell_timings_when_requested(self):
+        self._load()
+        img = cv2.imread(
+            os.path.join(_TEST_SCREENSHOTS_DIR, "servant_select_partial_grid.png")
+        )
+        assert img is not None
+        face = str(
+            Path(_TEST_SCREENSHOTS_DIR).parent / "templates" / "enhancement-cn"
+            / "face_servant_366_1.png"
+        )
+
+        result = mash_cv._find_enhancement_servant_grid(
+            img,
+            {
+                "faceTemplatePaths": [face],
+                "templateCrop": {"x": 0.195, "y": 0.265, "w": 0.805, "h": 0.438},
+                "faceThreshold": 0.85,
+                "timings": True,
+            },
+        )
+
+        assert result["anchors"] and result["gridCells"]
+        timings = result["diagnostics"]["timings"]
+        assert timings["gridMs"] >= 0
+        assert timings["matchMs"] >= 0
+        assert timings["totalMs"] >= 0
+        grid_matches = [m for m in result["matches"] if m.get("row") is not None]
+        assert grid_matches
+        assert all(isinstance(m.get("elapsedMs"), float) for m in grid_matches)
+
 
 class TestCnServantListFallback:
     def _command(self, width, stage=1, **extra):
@@ -2538,6 +2568,32 @@ class TestCnServantListFallback:
         strict = mash_cv._find_enhancement_servant_grid(image, self._command(1920, faceThreshold=0.999))
         assert strict["found"] is False
         assert strict["diagnostics"]["directSearchThreshold"] == 0.999
+
+    @pytest.mark.parametrize("width, expected", ((1920, 167), (2560, 223)))
+    def test_template_size_defaults_to_frame_scale(self, width, expected):
+        image = self._image(width)
+        command = self._command(width)
+        command.pop("templateSize")
+
+        result = mash_cv._find_enhancement_servant_grid(image, command)
+
+        assert result["templateSize"] == {"w": expected, "h": expected}
+        assert result["found"] is True, result["diagnostics"]
+
+    def test_direct_search_threshold_can_be_lowered_for_tuning(self):
+        image = self._image(1920)
+
+        strict = self._command(1920, faceThreshold=0.999)
+        assert mash_cv._find_enhancement_servant_grid(image, strict)["found"] is False
+
+        tuned = self._command(
+            1920, faceThreshold=0.999, directSearchThreshold=0.60
+        )
+        result = mash_cv._find_enhancement_servant_grid(image, tuned)
+
+        assert result["found"] is True, result["diagnostics"]
+        assert result["diagnostics"]["directSearchThreshold"] == 0.60
+        assert result["diagnostics"]["matchMethod"] == "direct"
 
     def test_direct_search_preserves_two_exp_mask(self):
         image = self._image(1920)
@@ -3730,6 +3786,44 @@ def test_support_skill_details_distinguish_owned_and_append_panels(monkeypatch):
     assert panel == "append"
     assert skill_levels == []
     assert append_levels == [10, 10, 9, None, None]
+
+
+def test_find_supports_reports_phase_timings_when_requested(monkeypatch):
+    import mash_cv.cv as cv
+
+    img = np.zeros((1000, 1000, 3), dtype=np.uint8)
+    box_name = [[100, 100], [240, 100], [240, 130], [100, 130]]
+    box_np = [[120, 185], [340, 185], [340, 215], [120, 215]]
+
+    def fake_ocr(_crop):
+        return (
+            [
+                (box_name, "伟大的石像神", 0.98),
+                (box_np, "肉弹啊明天再开始努力吧", 0.97),
+            ],
+            None,
+        )
+
+    monkeypatch.setattr(cv, "_get_ocr", lambda: fake_ocr)
+    monkeypatch.setattr(cv, "_support_find_confirm_button_anchors", lambda _img: [])
+    monkeypatch.setattr(cv, "_support_grand_badge_scores_per_anchor", lambda _img, _anchors: None)
+
+    result = cv._find_supports(
+        img,
+        {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0},
+        "吉娜可·加里吉利",
+        ["肉弹啊，明天再开始努力吧"],
+        0.7,
+        0.7,
+        0.2,
+        expected_names=["吉娜可·加里吉利", "伟大的石像神"],
+        collect_timings=True,
+    )
+
+    timings = result["diagnostics"]["timings"]
+    assert timings["ocrMs"] >= 0
+    assert timings["totalMs"] >= 0
+    assert "detailsMs" in timings
 
 
 def test_find_supports_matches_overwrite_name_alias_with_np_pair(monkeypatch):

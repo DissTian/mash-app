@@ -23,6 +23,7 @@ import { FriendPointSummonPage } from "./features/friend-point-summon/FriendPoin
 import { RankUpQuestPage } from "./features/rank-up-quest/RankUpQuestPage";
 import { HomePage } from "./features/home/HomePage";
 import { DebugPage } from "./features/debug/DebugPage";
+import { BenchPage } from "./features/bench/BenchPage";
 import { StatusBar } from "./features/status/StatusBar";
 import { PendingProjectWrites } from "./features/projects/pendingProjectWrites";
 import { ProjectBar } from "./features/projects/ProjectBar";
@@ -87,7 +88,8 @@ type View =
   | "friendPointSummon"
   | "rankUpQuest"
   | "packetCapture"
-  | "debug";
+  | "debug"
+  | "bench";
 
 interface AutomationEvent {
   state: string;
@@ -972,6 +974,11 @@ function App({
     setView("debug");
   }, [isNavigationLocked]);
 
+  const handleOpenBench = useCallback(() => {
+    if (!featureToggles.bench || isNavigationLocked()) return;
+    setView("bench");
+  }, [isNavigationLocked]);
+
   const handleOpenCraftEssenceEnhancement = useCallback(() => {
     if (!featureToggles.craftEssenceEnhancement) return;
     setView("craftEssenceEnhancement");
@@ -1097,6 +1104,7 @@ function App({
               onOpenCraftEssenceEnhancement={handleOpenCraftEssenceEnhancement}
               onOpenRankUpQuest={handleOpenRankUpQuest}
               onOpenServantEnhancement={handleOpenServantEnhancement}
+              onOpenBench={featureToggles.bench ? handleOpenBench : undefined}
             />
           ) : view === "battle" ? (
             <BattlePage
@@ -1160,6 +1168,8 @@ function App({
               onAutomationStart={handleStandaloneAutomationStart}
               onLogEntry={appendOperationLog}
             />
+          ) : view === "bench" && featureToggles.bench ? (
+            <BenchPage onBack={handleOpenHome} />
           ) : view === "debug" && featureToggles.cvDebug ? (
             <DebugPage
               onBack={handleBackToConfig}

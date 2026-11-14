@@ -6086,6 +6086,7 @@ fn support_row(
         skill_levels: skills,
         append_skill_levels: append,
         skill_level_diagnostics: Vec::new(),
+        elapsed_ms: None,
     }
 }
 

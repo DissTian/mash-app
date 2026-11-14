@@ -526,3 +526,114 @@
 .debug-log-error .debug-log-msg {
   color: var(--red-11);
 }
+
+/* Canvas fit + view-only mask (screenshot stays fully visible) */
+.debug-canvas-wrapper {
+  position: relative;
+}
+
+.debug-canvas-mask {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-2);
+  background: #000;
+  pointer-events: none;
+  transition: opacity 0.08s linear;
+}
+
+.debug-canvas-mask-control {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 6;
+  padding: 6px 10px;
+  border: 1px solid var(--gray-6);
+  border-radius: var(--radius-2);
+  background: var(--fgo-surface);
+  backdrop-filter: blur(12px);
+}
+
+.debug-canvas-mask-slider {
+  width: 120px;
+}
+
+.debug-canvas-mask-value {
+  min-width: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* In-page debug view switch: 画面 / 工具 */
+.debug-view-switch {
+  display: inline-flex;
+  gap: 4px;
+}
+
+/* Canvas view keeps the tool rows mounted (so <details> open state and scroll
+   position survive the switch) but removes them from layout. */
+.debug-body-canvas .debug-section,
+.debug-body-canvas .debug-log-container,
+.debug-body-canvas .debug-side {
+  display: none;
+}
+
+/* Tools view scrolls on its own once the canvas no longer shares the column. */
+.debug-canvas-col-tools {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.debug-canvas-col-tools .debug-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  padding: 6px 0;
+  background: var(--fgo-surface);
+  backdrop-filter: blur(12px);
+}
+
+/* Per-row help button inside DebugSection summaries and the toolbar row */
+.debug-section-meta {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.debug-toolbar-help {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.debug-section-timing {
+  font-variant-numeric: tabular-nums;
+}
+
+.debug-timing-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.debug-timing-row {
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--gray-4);
+}
+
+.debug-timing-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.debug-timing-total {
+  padding-top: 6px;
+  margin-top: 2px;
+  border-top: 1px solid var(--gray-6);
+  font-variant-numeric: tabular-nums;
+}
+
+.debug-help-dialog {
+  max-width: 560px;
+}
+
+.debug-help-text {
+  white-space: pre-wrap;
+  line-height: 1.6;
+}

@@ -28,6 +28,8 @@ impl SidecarClient {
         threshold: f64,
         retry_seconds: f64,
         mask_region: Option<NormRect>,
+        direct_search_threshold: Option<f64>,
+        collect_timings: bool,
     ) -> Result<FindEnhancementServantGridResult, CvError> {
         let mut req = request(
             SidecarCommand::FindEnhancementServantGrid,
@@ -70,6 +72,16 @@ impl SidecarClient {
                         "h": region.h,
                     }),
                 );
+            }
+        }
+        if let Some(threshold) = direct_search_threshold {
+            if let Some(obj) = req.as_object_mut() {
+                obj.insert("directSearchThreshold".into(), serde_json::json!(threshold));
+            }
+        }
+        if collect_timings {
+            if let Some(obj) = req.as_object_mut() {
+                obj.insert("timings".into(), serde_json::json!(true));
             }
         }
         Self::add_image_path(&mut req, image_path);

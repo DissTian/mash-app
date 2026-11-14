@@ -67,7 +67,7 @@ pub struct DebugStreamFrameResult {
     pub(super) timestamp_ms: u128,
 }
 
-pub(super) fn debug_image_path(app: &tauri::AppHandle) -> PathBuf {
+pub(crate) fn debug_image_path(app: &tauri::AppHandle) -> PathBuf {
     let dir = app_data_dir(app).join("debug");
     fs::create_dir_all(&dir).ok();
     dir.join("last.jpg")
@@ -120,7 +120,7 @@ pub(crate) fn ensure_debug_sidecar(
 }
 
 /// Ensure the debug sidecar has a live scrcpy stream. Idempotent.
-pub(super) fn ensure_debug_stream(
+pub(crate) fn ensure_debug_stream(
     app: &tauri::AppHandle,
     debug_state: &DebugSidecar,
     server: Server,
@@ -206,7 +206,7 @@ pub(super) fn debug_stream_status(debug_state: &DebugSidecar) -> DebugStreamStat
 /// Returns Err with a user-facing message when automation is currently
 /// running. Debug commands route through this so we don't end up with two
 /// scrcpy servers + sidecars touching the same device at the same time.
-pub(super) fn require_automation_idle(
+pub(crate) fn require_automation_idle(
     handle_state: &Mutex<RunnerHandle>,
     enhancement_handle_state: &Mutex<EnhancementRunnerHandle>,
     ce_enhancement_handle_state: &Mutex<CraftEssenceEnhancementRunnerHandle>,

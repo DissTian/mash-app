@@ -68,6 +68,18 @@ describe("HomePage", () => {
     expect(onOpenRankUpQuest).toHaveBeenCalledOnce();
   });
 
+  it("opens the benchmark page from the top-right test button", async () => {
+    const onOpenBench = vi.fn();
+    renderHome({ onOpenBench });
+    await userEvent.setup().click(screen.getByRole("button", { name: "测试" }));
+    expect(onOpenBench).toHaveBeenCalledOnce();
+  });
+
+  it("hides the test entry when the feature toggle is off", () => {
+    renderHome();
+    expect(screen.queryByRole("button", { name: "测试" })).not.toBeInTheDocument();
+  });
+
   it("keeps disabled feature entries hidden in both menus", async () => {
     renderHome({
       showSummon: false,
