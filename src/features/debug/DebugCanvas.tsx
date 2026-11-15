@@ -138,7 +138,7 @@ export interface DebugCanvasState {
   supportResult: FindSupportsResultDto | null;
   coordinates: RunnerCoordinatesDto | null;
   showDigitRecognitionRegions: boolean;
-  showCoordOverlay: boolean;
+  /** Coordinate groups to draw; an empty list hides the overlay entirely. */
   visibleCoordGroups: string[];
 }
 
@@ -168,7 +168,6 @@ export function DebugCanvas({
   supportResult,
   coordinates,
   showDigitRecognitionRegions,
-  showCoordOverlay,
   visibleCoordGroups,
   onImgLoad,
   onImgError,
@@ -969,8 +968,7 @@ export function DebugCanvas({
             })}
           </>
         )}
-        {showCoordOverlay &&
-          coordinates?.groups
+        {coordinates?.groups
             .filter((g) => visibleSet.has(g.id))
             .flatMap((g) => [
               ...g.regions.map((r) => (

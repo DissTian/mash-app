@@ -1,4 +1,9 @@
-import type { SupportGrandBondCeMode } from "../../types/project";
+import type {
+  Project,
+  SupportAppendSkillLevelMins,
+  SupportGrandBondCeMode,
+  SupportSkillLevelMins,
+} from "../../types/project";
 import type {
   SupportCeArtworkCheckDto,
   SupportCeIconCheckDto,
@@ -29,8 +34,13 @@ export interface DebugPagePrefs {
   rawTemplateInput?: string;
   threshold?: number;
   selectedCardServantIds?: number[];
+  supportTeamProjectId?: string | null;
   supportServantId?: number | null;
   supportServantVariantKey?: string | null;
+  supportServantLevelMin?: number | null;
+  supportNoblePhantasmLevelMin?: number | null;
+  supportSkillLevelMins?: (number | null)[];
+  supportAppendSkillLevelMins?: (number | null)[];
   supportCraftEssenceId?: number | null;
   supportCraftEssenceMlbRequired?: boolean;
   supportGrandCraftEssenceIds?: [number | null, number | null, number | null];
@@ -45,8 +55,108 @@ export interface DebugPagePrefs {
   enhancementTwoExp?: boolean;
   enhancementUseLiveFrame?: boolean;
   showDigitRecognitionRegions?: boolean;
-  showCoordOverlay?: boolean;
   visibleCoordGroups?: string[];
+}
+
+/**
+ * Rebuild the 3-slot owned-skill minimum tuple from persisted prefs, filling
+ * missing entries with `null` so the shared settings panel always gets a
+ * complete tuple.
+ */
+export function asSupportSkillLevelMins(value: unknown): SupportSkillLevelMins {
+  const list = Array.isArray(value) ? value : [];
+  return [0, 1, 2].map((index) => asNumberOrNull(list[index])) as SupportSkillLevelMins;
+}
+
+/** Same as {@link asSupportSkillLevelMins} for the 5-slot append skills. */
+export function asSupportAppendSkillLevelMins(
+  value: unknown
+): SupportAppendSkillLevelMins {
+  const list = Array.isArray(value) ? value : [];
+  return [0, 1, 2, 3, 4].map((index) =>
+    asNumberOrNull(list[index])
+  ) as SupportAppendSkillLevelMins;
+}
+
+/**
+ * Filter/rank template keys for the raw-template picker.
+ *
+ * Substring hits come first (prefix before mid-string), then subsequence
+ * ("fuzzy") hits, so `batack` still finds `battle/attack_button`. Ties keep
+ * the original alphabetical order.
+ */
+export function filterTemplateKeys(keys: string[], query: string): string[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return keys;
+  const ranked: { key: string; rank: number; index: number }[] = [];
+  keys.forEach((key, index) => {
+    const haystack = key.toLowerCase();
+    const substring = haystack.indexOf(needle);
+    if (substring >= 0) {
+      ranked.push({ key, rank: substring === 0 ? 0 : 1, index });
+      return;
+    }
+    let position = 0;
+    for (const char of needle) {
+      const found = haystack.indexOf(char, position);
+      if (found < 0) return;
+      position = found + 1;
+    }
+    ranked.push({ key, rank: 2, index });
+  });
+  ranked.sort((a, b) => a.rank - b.rank || a.index - b.index);
+  return ranked.map((entry) => entry.key);
+}
+
+/**
+ * Support-recognition parameters derived from one project ("队伍"), mirroring
+ * the field mapping the runner uses for the same project. The debug page
+ * applies this so its manual recognition matches production behaviour.
+ */
+export interface SupportDebugConfig {
+  supportServantId: number | null;
+  supportServantVariantKey: string | null;
+  supportServantLevelMin: number | null;
+  supportNoblePhantasmLevelMin: number | null;
+  supportSkillLevelMins: SupportSkillLevelMins;
+  supportAppendSkillLevelMins: SupportAppendSkillLevelMins;
+  supportCraftEssenceId: number | null;
+  supportCraftEssenceMlbRequired: boolean;
+  supportGrandCraftEssenceIds: [number | null, number | null, number | null];
+  supportGrandCraftEssenceMlbRequired: [boolean, boolean, boolean];
+  supportGrandBondCeMode: SupportGrandBondCeMode;
+  supportScoreGrandMode: boolean;
+  supportStarMapScoreMin: number | null;
+  supportGrandStarMapScoreMin: number | null;
+}
+
+export function supportDebugConfigFromProject(project: Project): SupportDebugConfig {
+  const supportSlot =
+    project.slots?.find((slot) => slot.type === "support") ?? null;
+  const ceIds = supportSlot?.craftEssenceIds ?? [];
+  const singleCeId =
+    ceIds.length > 0 ? ceIds[0] : (supportSlot?.craftEssenceId ?? null);
+  return {
+    supportServantId: project.supportServantId ?? null,
+    supportServantVariantKey: project.supportServantVariantKey ?? null,
+    supportServantLevelMin: project.supportServantLevelMin ?? null,
+    supportNoblePhantasmLevelMin: project.supportNoblePhantasmLevelMin ?? null,
+    supportSkillLevelMins: asSupportSkillLevelMins(project.supportSkillLevelMins),
+    supportAppendSkillLevelMins: asSupportAppendSkillLevelMins(
+      project.supportAppendSkillLevelMins
+    ),
+    supportCraftEssenceId: singleCeId,
+    supportCraftEssenceMlbRequired:
+      supportSlot?.craftEssenceMlbRequired ?? true,
+    supportGrandCraftEssenceIds: asGrandCeIds(project.supportGrandCraftEssenceIds),
+    supportGrandCraftEssenceMlbRequired: asGrandMlbRequired(
+      project.supportGrandCraftEssenceMlbRequired
+    ),
+    supportGrandBondCeMode: project.supportGrandBondCeMode ?? "any",
+    supportScoreGrandMode: project.supportGrandMode === true,
+    supportStarMapScoreMin: project.supportStarMapScoreMin ?? null,
+    supportGrandStarMapScoreMin: project.supportGrandStarMapScoreMin ?? null,
+  };
 }
 
 export function supportPanelLabel(panel: SupportRowMatchDto["skillPanel"]): string {

@@ -292,6 +292,8 @@ pub fn run() {
             commands::debug::debug_find_element_by_name,
             commands::debug::debug_read_bond_level_up,
             commands::debug::debug_list_templates,
+            commands::debug::debug_list_template_files,
+            commands::debug::debug_read_template_image,
             commands::debug::debug_get_cv_config,
             commands::debug::debug_reload_sidecar,
             commands::debug::debug_shutdown,

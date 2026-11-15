@@ -316,6 +316,9 @@ export interface SupportRowMatchDto {
   scoreConfidence?: number | null;
   scoreFilterPassed?: boolean | null;
   scoreFilterReason?: string | null;
+  /** Verdict for the level / NP / skill requirements from the shared panel. */
+  levelFilterPassed?: boolean | null;
+  levelFilterReason?: string | null;
   npMatchedName: string;
   npLevel?: number | null;
   servantLevel?: number | null;
@@ -391,4 +394,22 @@ export interface FindSupportsResultDto {
     starMapScoreMin?: number | null;
     grandStarMapScoreMin?: number | null;
   };
+  levelFilter?: {
+    servantLevelMin?: number | null;
+    noblePhantasmLevelMin?: number | null;
+    skillLevelMins?: (number | null)[];
+    appendSkillLevelMins?: (number | null)[];
+  };
+}
+
+export interface DebugTemplateImageDto {
+  templateKey: string;
+  path: string;
+  dataUrl: string;
+  sizeBytes: number;
+}
+
+export interface DebugTemplateFileDto {
+  templateKey: string;
+  path: string;
 }

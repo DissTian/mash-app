@@ -20,7 +20,6 @@ function makeState(overrides: Partial<DebugCanvasState> = {}): DebugCanvasState 
     supportResult: null,
     coordinates: null,
     showDigitRecognitionRegions: false,
-    showCoordOverlay: false,
     visibleCoordGroups: [],
     ...overrides,
   };
@@ -104,13 +103,12 @@ describe("DebugCanvas", () => {
     ).toBeGreaterThanOrEqual(1);
   });
 
-  it("hides coord overlays when showCoordOverlay is false", () => {
+  it("hides coord overlays when no group is selected", () => {
     const { container } = renderWithTheme(
       <DebugCanvas
         {...makeState({
           imageSrc: "tauri://localhost/fake.png?t=3",
-          showCoordOverlay: false,
-          visibleCoordGroups: ["battle"],
+          visibleCoordGroups: [],
           coordinates: {
             groups: [
               {
@@ -371,7 +369,6 @@ describe("DebugCanvas", () => {
       <DebugCanvas
         {...makeState({
           imageSrc: "tauri://localhost/fake.png?t=4",
-          showCoordOverlay: true,
           visibleCoordGroups: ["battle"],
           coordinates: {
             groups: [

@@ -31,7 +31,9 @@
             "$RESOURCE/assets/mystic-codes/**",
             "**/src-tauri/assets/servants/**",
             "**/src-tauri/assets/ces/**",
-            "**/src-tauri/assets/mystic-codes/**"
+            "**/src-tauri/assets/mystic-codes/**",
+            "$RESOURCE/resources/servers/**",
+            "**/src-tauri/resources/servers/**"
           ]
         }
       }

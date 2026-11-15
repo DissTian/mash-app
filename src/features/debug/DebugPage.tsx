@@ -17,11 +17,20 @@ import { invoke, convertFileSrc } from "../../tauri";
 import type { CvConfig } from "../../types/cv";
 import type { CraftEssence } from "../../types/craftEssence";
 import type { Servant } from "../../types/servant";
-import type { SupportGrandBondCeMode } from "../../types/project";
+import type {
+  Project,
+  SupportAppendSkillLevelMins,
+  SupportGrandBondCeMode,
+  SupportSkillLevelMins,
+} from "../../types/project";
 import { DebugCanvas, type DebugCanvasState } from "./DebugCanvas";
+import { TemplateKeyPickerDialog } from "./TemplateKeyPickerDialog";
+import { TemplatePreviewDialog } from "./TemplatePreviewDialog";
 import { FlowTracePanel } from "./FlowTracePanel";
 import { CraftEssenceSelectDialog } from "../team/CraftEssenceSelectDialog";
 import { ServantSelectDialog } from "../team/ServantSelectDialog";
+import { SupportSettingsDialog } from "../team/SupportSettingsDialog";
+import { useCeCards, usePortraits } from "../team/contentGridAssets";
 import { DebugSection } from "./DebugSection";
 import { useDebugCanvasPopout } from "./useDebugCanvasPopout";
 import { DEBUG_SECTION_HELP } from "./debugSectionHelp";
@@ -33,9 +42,12 @@ import {
   asGrandCeIds,
   asGrandMlbRequired,
   asNumberOrNull,
+  asSupportAppendSkillLevelMins,
+  asSupportSkillLevelMins,
   readDebugPrefs,
   supportCeArtworkChecksText,
   supportCeIconChecksText,
+  supportDebugConfigFromProject,
   supportLevelList,
   supportPanelLabel,
   supportSkillDiagnosticsText,
@@ -49,6 +61,7 @@ import type {
   CommandCardMatchDto,
   DebugCaptureResult,
   DebugStreamFrameResultDto,
+  DebugTemplateFileDto,
   DebugStreamStatusDto,
   ElementMatchDto,
   EnhancementServantMatchResultDto,
@@ -71,7 +84,7 @@ interface LogEntry {
   message: string;
 }
 
-interface DebugPageProps {
+export interface DebugPageProps {
   onBack: () => void;
   servants: Servant[];
   craftEssences: CraftEssence[];
@@ -84,6 +97,11 @@ interface DebugPageProps {
    * no project is active or none of the slots have a servant pinned.
    */
   defaultCardServantIds: number[];
+  /**
+   * All saved teams ("项目"), used by the debug page's support section to
+   * apply one team's support requirements instead of hand-entering them.
+   */
+  projects?: Project[];
 }
 
 type DebugServantPickerTarget = "card" | "support" | "enhancement";
@@ -115,6 +133,7 @@ export function DebugPage({
   servants,
   craftEssences,
   defaultCardServantIds,
+  projects = [],
 }: DebugPageProps) {
   const initialPrefs = useMemo(() => readDebugPrefs(), []);
   const timingEnabled = debugTiming.enabled;
@@ -145,7 +164,7 @@ export function DebugPage({
   const [cacheBuster, setCacheBuster] = useState(0);
 
   const [cvConfig, setCvConfig] = useState<CvConfig | null>(null);
-  const [templateKeys, setTemplateKeys] = useState<string[]>([]);
+  const [templateFiles, setTemplateFiles] = useState<DebugTemplateFileDto[]>([]);
   const [selectedScreen, setSelectedScreen] = useState<string>(
     initialPrefs.selectedScreen ?? ""
   );
@@ -163,6 +182,11 @@ export function DebugPage({
   );
 
   const [probes, setProbes] = useState<ProbeResult[]>([]);
+  const [previewTemplateKey, setPreviewTemplateKey] = useState<string | null>(
+    null
+  );
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [supportSettingsOpen, setSupportSettingsOpen] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [dynamicCapture, setDynamicCapture] = useState(false);
   const [dynamicCapturePaused, setDynamicCapturePaused] = useState(false);
@@ -175,9 +199,6 @@ export function DebugPage({
   );
   const [showDigitRecognitionRegions, setShowDigitRecognitionRegions] = useState(
     initialPrefs.showDigitRecognitionRegions === true
-  );
-  const [showCoordOverlay, setShowCoordOverlay] = useState(
-    initialPrefs.showCoordOverlay === true
   );
   const [visibleCoordGroups, setVisibleCoordGroups] = useState<Set<string>>(
     () => new Set(initialPrefs.visibleCoordGroups ?? [])
@@ -201,7 +222,6 @@ export function DebugPage({
   const [findingCards, setFindingCards] = useState(false);
   const [npGaugeSlots, setNpGaugeSlots] = useState<NoblePhantasmMatchDto[]>([]);
   const [debuggingNpGauges, setDebuggingNpGauges] = useState(false);
-  const [recognizingDigitRegions, setRecognizingDigitRegions] = useState(false);
   const [dynamicNpGaugeDebug, setDynamicNpGaugeDebug] = useState(false);
   const [battleScene, setBattleScene] =
     useState<BattleSceneResultDto | null>(null);
@@ -225,6 +245,26 @@ export function DebugPage({
       servants.find((servant) => servant.id === servantId)?.variantKey ?? null
     );
   });
+  const [supportTeamProjectId, setSupportTeamProjectId] = useState<
+    string | null
+  >(
+    typeof initialPrefs.supportTeamProjectId === "string"
+      ? initialPrefs.supportTeamProjectId
+      : null
+  );
+  const [supportServantLevelMin, setSupportServantLevelMin] = useState<
+    number | null
+  >(asNumberOrNull(initialPrefs.supportServantLevelMin));
+  const [supportNoblePhantasmLevelMin, setSupportNoblePhantasmLevelMin] =
+    useState<number | null>(asNumberOrNull(initialPrefs.supportNoblePhantasmLevelMin));
+  const [supportSkillLevelMins, setSupportSkillLevelMins] =
+    useState<SupportSkillLevelMins>(() =>
+      asSupportSkillLevelMins(initialPrefs.supportSkillLevelMins)
+    );
+  const [supportAppendSkillLevelMins, setSupportAppendSkillLevelMins] =
+    useState<SupportAppendSkillLevelMins>(() =>
+      asSupportAppendSkillLevelMins(initialPrefs.supportAppendSkillLevelMins)
+    );
   const [supportCraftEssenceId, setSupportCraftEssenceId] =
     useState<number | null>(asNumberOrNull(initialPrefs.supportCraftEssenceId));
   const [supportCraftEssenceMlbRequired, setSupportCraftEssenceMlbRequired] =
@@ -312,11 +352,14 @@ export function DebugPage({
 
   const loadTemplateList = useCallback(async () => {
     try {
-      const keys = await invoke<string[]>("debug_list_templates");
-      if (!Array.isArray(keys)) {
-        throw new Error("debug_list_templates 未返回数组");
+      const files = await invoke<DebugTemplateFileDto[]>(
+        "debug_list_template_files"
+      );
+      if (!Array.isArray(files)) {
+        throw new Error("debug_list_template_files 未返回数组");
       }
-      setTemplateKeys(keys);
+      setTemplateFiles(files);
+      const keys = files.map((file) => file.templateKey);
       log(
         `已加载 ${keys.length} 个模板${keys.length > 0 ? ": " + keys.slice(0, 8).join(", ") + (keys.length > 8 ? " …" : "") : ""}`
       );
@@ -362,6 +405,16 @@ export function DebugPage({
     loadAvailableServantIds();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const templateThumbnails = useMemo(
+    () =>
+      templateFiles.map((file) => ({
+        templateKey: file.templateKey,
+        src: convertFileSrc(file.path),
+        path: file.path,
+      })),
+    [templateFiles]
+  );
+
   const visibleCoordGroupIds = useMemo(
     () => Array.from(visibleCoordGroups),
     [visibleCoordGroups]
@@ -375,8 +428,13 @@ export function DebugPage({
       rawTemplateInput,
       threshold,
       selectedCardServantIds,
+      supportTeamProjectId,
       supportServantId,
       supportServantVariantKey,
+      supportServantLevelMin,
+      supportNoblePhantasmLevelMin,
+      supportSkillLevelMins,
+      supportAppendSkillLevelMins,
       supportCraftEssenceId,
       supportCraftEssenceMlbRequired,
       supportGrandCraftEssenceIds,
@@ -391,7 +449,6 @@ export function DebugPage({
       enhancementTwoExp,
       enhancementUseLiveFrame,
       showDigitRecognitionRegions,
-      showCoordOverlay,
       visibleCoordGroups: visibleCoordGroupIds,
     });
   }, [
@@ -401,8 +458,13 @@ export function DebugPage({
     rawTemplateInput,
     threshold,
     selectedCardServantIds,
+    supportTeamProjectId,
     supportServantId,
     supportServantVariantKey,
+    supportServantLevelMin,
+    supportNoblePhantasmLevelMin,
+    supportSkillLevelMins,
+    supportAppendSkillLevelMins,
     supportCraftEssenceId,
     supportCraftEssenceMlbRequired,
     supportGrandCraftEssenceIds,
@@ -417,7 +479,6 @@ export function DebugPage({
     enhancementTwoExp,
     enhancementUseLiveFrame,
     showDigitRecognitionRegions,
-    showCoordOverlay,
     visibleCoordGroupIds,
   ]);
 
@@ -896,32 +957,6 @@ export function DebugPage({
     [log]
   );
 
-  const handleRecognizeDigitRegions = useCallback(async () => {
-    if (!capture) return;
-    setRecognizingDigitRegions(true);
-    try {
-      const slots = await readNpGauges({ logResult: false, live: false });
-      const turnCount = slots[0]?.turnCountModelLabel ?? "未识别";
-      const gauges = [...slots]
-        .sort((left, right) => left.slot - right.slot)
-        .map((slot) => {
-          const digits = slot.gaugeDigitModelLabels ?? ["未识别", "未识别", "未识别"];
-          return `NP${slot.slot + 1}[百=${digits[0] ?? "未识别"} 十=${digits[1] ?? "未识别"} 个=${digits[2] ?? "未识别"}]`;
-        })
-        .join("；");
-      const ctcSummary = slots[0]?.turnSequenceValue != null
-        ? `；CNN-CTC 回合=${slots[0].turnSequenceValue || "未识别"}；${slots.map((slot) =>
-            `NP${slot.slot + 1}=${slot.gaugeSequenceValue || "未识别"}(${(slot.gaugeSequenceConfidence ?? 0).toFixed(3)}${slot.gaugeSequenceAccepted ? "" : " 拒绝"})`
-          ).join("；")}`
-        : "";
-      log(`数字识别：回合=${turnCount}${gauges ? `；${gauges}` : ""}${ctcSummary}`);
-    } catch (err) {
-      log(`数字识别失败: ${err}`, "error");
-    } finally {
-      setRecognizingDigitRegions(false);
-    }
-  }, [capture, log, readNpGauges]);
-
   const handleDebugNpGauges = useCallback(async () => {
     if (!capture) return;
     setDebuggingNpGauges(true);
@@ -1159,6 +1194,175 @@ export function DebugPage({
     log,
   ]);
 
+  const handleSelectSupportTeam = useCallback(
+    (value: string) => {
+      const projectId = value === EMPTY_DEBUG_SELECT_VALUE ? null : value;
+      setSupportTeamProjectId(projectId);
+      if (projectId === null) return;
+      const project = projects.find((item) => item.id === projectId);
+      if (!project) return;
+      const config = supportDebugConfigFromProject(project);
+      setSupportServantId(config.supportServantId);
+      setSupportServantVariantKey(config.supportServantVariantKey);
+      setSupportServantLevelMin(config.supportServantLevelMin);
+      setSupportNoblePhantasmLevelMin(config.supportNoblePhantasmLevelMin);
+      setSupportSkillLevelMins(config.supportSkillLevelMins);
+      setSupportAppendSkillLevelMins(config.supportAppendSkillLevelMins);
+      setSupportCraftEssenceId(config.supportCraftEssenceId);
+      setSupportCraftEssenceMlbRequired(config.supportCraftEssenceMlbRequired);
+      setSupportGrandCraftEssenceIds(config.supportGrandCraftEssenceIds);
+      setSupportGrandCraftEssenceMlbRequired(
+        config.supportGrandCraftEssenceMlbRequired
+      );
+      setSupportGrandBondCeMode(config.supportGrandBondCeMode);
+      setSupportScoreGrandMode(config.supportScoreGrandMode);
+      setSupportStarMapScoreMin(config.supportStarMapScoreMin);
+      setSupportGrandStarMapScoreMin(config.supportGrandStarMapScoreMin);
+      setSupportResult(null);
+      setSupportMetadata(null);
+      log(
+        `套用队伍「${project.name || project.id}」的助战配置` +
+          `（从者 ${config.supportServantId ?? "未设置"}）`
+      );
+    },
+    [projects, log]
+  );
+
+  const supportPortraitServants = useMemo(
+    () => (selectedSupportServant ? [selectedSupportServant] : []),
+    [selectedSupportServant]
+  );
+  const supportPortraitMap = usePortraits(supportPortraitServants);
+  const supportCeIds = useMemo(
+    () =>
+      [supportCraftEssenceId, ...supportGrandCraftEssenceIds].filter(
+        (id): id is number => id != null
+      ),
+    [supportCraftEssenceId, supportGrandCraftEssenceIds]
+  );
+  const supportCeCardMap = useCeCards(supportCeIds);
+
+  const supportCraftEssenceGroups = useMemo(() => {
+    const single = selectedSupportCraftEssence
+      ? [supportCeCardMap[selectedSupportCraftEssence.id]]
+      : [];
+    return [
+      { count: single.length, images: single },
+      ...selectedSupportGrandCraftEssences.map((ce) => {
+        const images = ce ? [supportCeCardMap[ce.id]] : [];
+        return { count: images.length, images };
+      }),
+    ];
+  }, [
+    selectedSupportCraftEssence,
+    selectedSupportGrandCraftEssences,
+    supportCeCardMap,
+  ]);
+
+  // The shared battle-config panel reads a `Project`; build a throwaway one so
+  // both screens edit the exact same requirement set.
+  const supportSettingsProject = useMemo<Project>(
+    () => ({
+      id: "debug-support-settings",
+      name: "调试助战",
+      slots: [],
+      supportGrandMode: supportScoreGrandMode,
+      supportServantLevelMin,
+      supportNoblePhantasmLevelMin,
+      supportStarMapScoreMin,
+      supportGrandStarMapScoreMin,
+      supportSkillLevelMins,
+      supportAppendSkillLevelMins,
+    }),
+    [
+      supportScoreGrandMode,
+      supportServantLevelMin,
+      supportNoblePhantasmLevelMin,
+      supportStarMapScoreMin,
+      supportGrandStarMapScoreMin,
+      supportSkillLevelMins,
+      supportAppendSkillLevelMins,
+    ]
+  );
+
+  const supportSettingsSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (supportServantLevelMin !== null) {
+      parts.push(`等级≥${supportServantLevelMin}`);
+    }
+    if (supportNoblePhantasmLevelMin !== null) {
+      parts.push(`宝具≥${supportNoblePhantasmLevelMin}`);
+    }
+    if (supportStarMapScoreMin !== null) {
+      parts.push(`星图≥${supportStarMapScoreMin}`);
+    }
+    if (supportScoreGrandMode) {
+      parts.push(
+        supportGrandStarMapScoreMin !== null
+          ? `冠位星图≥${supportGrandStarMapScoreMin}`
+          : "冠位模式"
+      );
+    }
+    const skillParts = supportSkillLevelMins
+      .map((min, index) => (min == null ? null : `技${index + 1}≥${min}`))
+      .filter((part): part is string => part !== null);
+    const appendParts = supportAppendSkillLevelMins
+      .map((min, index) => (min == null ? null : `追${index + 1}≥${min}`))
+      .filter((part): part is string => part !== null);
+    parts.push(...skillParts, ...appendParts);
+    if (supportCraftEssenceId !== null) {
+      parts.push(supportCraftEssenceMlbRequired ? "礼装满破" : "礼装");
+    }
+    const grandCeCount = supportGrandCraftEssenceIds.filter(
+      (id) => id != null
+    ).length;
+    if (grandCeCount > 0) {
+      parts.push(`冠位礼装 ${grandCeCount} 张`);
+    }
+    if (supportReleaseOcr) {
+      parts.push("释放 OCR");
+    }
+    return parts.length > 0
+      ? parts.join(" · ")
+      : "默认参数（不限等级/分值、不校验礼装）";
+  }, [
+    supportServantLevelMin,
+    supportNoblePhantasmLevelMin,
+    supportStarMapScoreMin,
+    supportScoreGrandMode,
+    supportGrandStarMapScoreMin,
+    supportSkillLevelMins,
+    supportAppendSkillLevelMins,
+    supportCraftEssenceId,
+    supportCraftEssenceMlbRequired,
+    supportGrandCraftEssenceIds,
+    supportReleaseOcr,
+  ]);
+
+  const handleSupportSettingsConfirm = useCallback(
+    (next: {
+      grandMode: boolean;
+      servantLevel: number | null;
+      starMapScore: number | null;
+      grandStarMapScore: number | null;
+      npLevel: number | null;
+      skillLevels: SupportSkillLevelMins;
+      appendSkillLevels: SupportAppendSkillLevelMins;
+    }) => {
+      setSupportScoreGrandMode(next.grandMode);
+      setSupportServantLevelMin(next.servantLevel);
+      setSupportStarMapScoreMin(next.starMapScore);
+      setSupportGrandStarMapScoreMin(next.grandStarMapScore);
+      setSupportNoblePhantasmLevelMin(next.npLevel);
+      setSupportSkillLevelMins(next.skillLevels);
+      setSupportAppendSkillLevelMins(next.appendSkillLevels);
+      setSupportResult(null);
+      setSupportSettingsOpen(false);
+      log("已更新助战识别设置");
+    },
+    [log]
+  );
+
   const handleFindSupports = useCallback(async () => {
     if (!capture || supportServantId === null) return;
     const servantVariantKey =
@@ -1195,6 +1399,10 @@ export function DebugPage({
           supportGrandStarMapScoreMin: supportScoreGrandMode
             ? supportGrandStarMapScoreMin
             : null,
+          supportServantLevelMin,
+          supportNoblePhantasmLevelMin,
+          supportSkillLevelMins,
+          supportAppendSkillLevelMins,
           releaseOcr: supportReleaseOcr,
         })
       );
@@ -1223,6 +1431,21 @@ export function DebugPage({
             (scoreFilter.grandMode
               ? ` · 冠位星图 ≥ ${scoreFilter.grandStarMapScoreMin ?? "任意"}`
               : "")
+        );
+      }
+      const levelFilter = result.levelFilter;
+      if (
+        levelFilter &&
+        (levelFilter.servantLevelMin != null ||
+          levelFilter.noblePhantasmLevelMin != null ||
+          (levelFilter.skillLevelMins ?? []).some((min) => min != null) ||
+          (levelFilter.appendSkillLevelMins ?? []).some((min) => min != null))
+      ) {
+        log(
+          `等级筛选：从者 ≥ ${levelFilter.servantLevelMin ?? "任意"}` +
+            ` · 宝具 ≥ ${levelFilter.noblePhantasmLevelMin ?? "任意"}` +
+            ` · 持有技能 ${supportLevelList(levelFilter.skillLevelMins)}` +
+            ` · 追加技能 ${supportLevelList(levelFilter.appendSkillLevelMins)}`
         );
       }
       // Surface the Grand craft-essence icon probe — info level on a hit
@@ -1316,6 +1539,12 @@ export function DebugPage({
               : s.scoreFilterPassed
                 ? " | 分值筛选 ✓"
                 : ` | 分值筛选 ✗ ${s.scoreFilterReason ?? "未达标"}`;
+          const levelFilterPart =
+            s.levelFilterPassed == null
+              ? ""
+              : s.levelFilterPassed
+                ? " | 等级筛选 ✓"
+                : ` | 等级筛选 ✗ ${s.levelFilterReason ?? "未达标"}`;
           const skillLevels =
             s.skillPanel === "append"
               ? supportLevelList(s.appendSkillLevels)
@@ -1338,6 +1567,7 @@ export function DebugPage({
               npPart +
               scorePart +
               scoreFilterPart +
+              levelFilterPart +
               npLevelPart +
               servantLevelPart +
               skillPart +
@@ -1368,6 +1598,10 @@ export function DebugPage({
     supportScoreGrandMode,
     supportStarMapScoreMin,
     supportGrandStarMapScoreMin,
+    supportServantLevelMin,
+    supportNoblePhantasmLevelMin,
+    supportSkillLevelMins,
+    supportAppendSkillLevelMins,
     supportReleaseOcr,
     supportMetadata,
     displayServantName,
@@ -1413,7 +1647,6 @@ export function DebugPage({
       supportResult,
       coordinates,
       showDigitRecognitionRegions,
-      showCoordOverlay,
       visibleCoordGroups: Array.from(visibleCoordGroups),
     }),
     [
@@ -1427,7 +1660,6 @@ export function DebugPage({
       supportResult,
       coordinates,
       showDigitRecognitionRegions,
-      showCoordOverlay,
       visibleCoordGroups,
     ]
   );
@@ -1665,23 +1897,68 @@ export function DebugPage({
           </Flex>
 
           {debugView === "canvas" && (
-            <DebugCanvas {...canvasState} className="debug-canvas-embedded" />
+            <>
+              <DebugCanvas {...canvasState} className="debug-canvas-embedded" />
+              <Box className="debug-coord-bar">
+                <Flex gap="2" align="center" wrap="wrap">
+                  <Text size="1" color="gray">
+                    坐标叠层（勾选任意分组即开启）
+                  </Text>
+                  <label
+                    className="debug-coord-toggle"
+                    title="标记当前回合数与三个宝具槽的百位、十位、个位取值区域"
+                  >
+                    <Checkbox
+                      checked={showDigitRecognitionRegions}
+                      onCheckedChange={(checked) =>
+                        setShowDigitRecognitionRegions(checked === true)
+                      }
+                    />
+                    <Text size="1">数字取值位置</Text>
+                  </label>
+                  {(coordinates?.groups.length ?? 0) === 0 ? (
+                    <Text size="1" color="gray">
+                      暂无坐标分组
+                    </Text>
+                  ) : (
+                    coordinates?.groups.map((group) => (
+                      <label key={group.id} className="debug-coord-toggle">
+                        <Checkbox
+                          checked={visibleCoordGroups.has(group.id)}
+                          onCheckedChange={(checked) => {
+                            setVisibleCoordGroups((prev) => {
+                              const next = new Set(prev);
+                              if (checked === true) next.add(group.id);
+                              else next.delete(group.id);
+                              return next;
+                            });
+                          }}
+                        />
+                        <Text size="1">{group.label}</Text>
+                      </label>
+                    ))
+                  )}
+                  <DebugHelpButton
+                    title="坐标叠层"
+                    help={DEBUG_SECTION_HELP.coordOverlay}
+                  />
+                </Flex>
+              </Box>
+            </>
           )}
 
           <DebugSection title="原始模板探针" help={DEBUG_SECTION_HELP.rawTemplateProbe}>
             <Flex gap="2" align="center" wrap="wrap" className="debug-toolbar">
-              <TextField.Root
-                className="debug-text-field"
-                list="debug-template-list"
-                placeholder="模板 key"
-                value={rawTemplateInput}
-                onChange={(e) => setRawTemplateInput(e.target.value)}
-              />
-              <datalist id="debug-template-list">
-                {templateKeys.map((k) => (
-                  <option key={k} value={k} />
-                ))}
-              </datalist>
+              <Button
+                type="button"
+                size="1"
+                variant="surface"
+                className="debug-template-key-button"
+                onClick={() => setTemplatePickerOpen(true)}
+                title="点击从列表中选择模板 key"
+              >
+                {rawTemplateInput.trim() || "选择模板 key"}
+              </Button>
               <Flex align="center" gap="1">
                 <Text size="1" color="gray">
                   阈值
@@ -1707,6 +1984,16 @@ export function DebugPage({
                 onClick={handleProbeRaw}
               >
                 {probing ? "查找中…" : "查找"}
+              </Button>
+              <Button
+                type="button"
+                size="1"
+                variant="surface"
+                disabled={!rawTemplateInput.trim()}
+                title="查看该模板 key 对应的原始 PNG"
+                onClick={() => setPreviewTemplateKey(rawTemplateInput.trim())}
+              >
+                预览
               </Button>
             </Flex>
           </DebugSection>
@@ -1938,6 +2225,37 @@ export function DebugPage({
             }
           >
             <Flex gap="2" align="center" wrap="wrap" className="debug-toolbar">
+              <Flex align="center" gap="1">
+                <Text size="1" color="gray">
+                  队伍配置
+                </Text>
+                <Select.Root
+                  value={
+                    supportTeamProjectId !== null &&
+                    projects.some(
+                      (project) => project.id === supportTeamProjectId
+                    )
+                      ? supportTeamProjectId
+                      : EMPTY_DEBUG_SELECT_VALUE
+                  }
+                  onValueChange={handleSelectSupportTeam}
+                >
+                  <Select.Trigger
+                    className="debug-select-trigger"
+                    aria-label="助战队伍配置"
+                  />
+                  <Select.Content>
+                    <Select.Item value={EMPTY_DEBUG_SELECT_VALUE}>
+                      不套用
+                    </Select.Item>
+                    {projects.map((project) => (
+                      <Select.Item key={project.id} value={project.id}>
+                        {project.name || project.id}
+                      </Select.Item>
+                    ))}
+                  </Select.Content>
+                </Select.Root>
+              </Flex>
               <Button
                 type="button"
                 size="1"
@@ -1949,57 +2267,15 @@ export function DebugPage({
                     selectedSupportServant.name_cn
                   : "选择助战从者"}
               </Button>
-              <Flex gap="1" align="center">
-                <Text size="1" color="gray">星图 ≥</Text>
-                <TextField.Root
-                  type="number"
-                  min={0}
-                  max={62}
-                  value={supportStarMapScoreMin ?? ""}
-                  placeholder="任意"
-                  aria-label="Debug 星图分值"
-                  style={{ width: 76 }}
-                  onChange={(event) => {
-                    const value = event.currentTarget.valueAsNumber;
-                    setSupportStarMapScoreMin(
-                      Number.isFinite(value)
-                        ? Math.min(62, Math.max(0, Math.trunc(value)))
-                        : null
-                    );
-                  }}
-                />
-              </Flex>
-              <label className="debug-coord-toggle">
-                <Checkbox
-                  checked={supportScoreGrandMode}
-                  onCheckedChange={(checked) =>
-                    setSupportScoreGrandMode(checked === true)
-                  }
-                />
-                <Text size="1">冠位分值</Text>
-              </label>
-              {supportScoreGrandMode && (
-                <Flex gap="1" align="center">
-                  <Text size="1" color="gray">冠位星图 ≥</Text>
-                  <TextField.Root
-                    type="number"
-                    min={0}
-                    max={16}
-                    value={supportGrandStarMapScoreMin ?? ""}
-                    placeholder="任意"
-                    aria-label="Debug 冠位星图分值"
-                    style={{ width: 76 }}
-                    onChange={(event) => {
-                      const value = event.currentTarget.valueAsNumber;
-                      setSupportGrandStarMapScoreMin(
-                        Number.isFinite(value)
-                          ? Math.min(16, Math.max(0, Math.trunc(value)))
-                          : null
-                      );
-                    }}
-                  />
-                </Flex>
-              )}
+              <Button
+                type="button"
+                size="1"
+                variant="surface"
+                onClick={() => setSupportSettingsOpen(true)}
+                title="星图分、冠位模式、礼装与 OCR 设置"
+              >
+                设置
+              </Button>
               <label
                 className="debug-coord-toggle"
                 title="默认关闭以保持 OCR 进程热启动；开启后每次识别结束释放 OCR 进程，下次识别需要重新加载模型。"
@@ -2012,108 +2288,9 @@ export function DebugPage({
                 />
                 <Text size="1">识别后释放 OCR</Text>
               </label>
-              <Button
-                type="button"
-                size="1"
-                variant="surface"
-                onClick={() => {
-                  setCraftEssencePickerTarget("single");
-                  setCraftEssencePickerOpen(true);
-                }}
-                title="留空跳过礼装识别。选择后会按行运行 verify_support_ce 并叠加搜索框 + 分数。"
-              >
-                {selectedSupportCraftEssence
-                  ? selectedSupportCraftEssence.name
-                  : "选择礼装 (可选)"}
-              </Button>
-              {supportCraftEssenceId !== null && (
-                <Button
-                  type="button"
-                  size="1"
-                  variant="ghost"
-                  color="gray"
-                  onClick={() => {
-                    setSupportCraftEssenceId(null);
-                    setSupportCraftEssenceMlbRequired(true);
-                  }}
-                >
-                  清除礼装
-                </Button>
-              )}
-              <label className="debug-coord-toggle">
-                <Checkbox
-                  checked={supportCraftEssenceMlbRequired}
-                  onCheckedChange={(checked) =>
-                    setSupportCraftEssenceMlbRequired(checked === true)
-                  }
-                />
-                <Text size="1">满破</Text>
-              </label>
-              {[0, 1, 2].map((index) => {
-                const ce = selectedSupportGrandCraftEssences[index];
-                return (
-                  <Flex key={index} align="center" gap="1">
-                    <Button
-                      type="button"
-                      size="1"
-                      variant="surface"
-                      onClick={() => {
-                        setCraftEssencePickerTarget(index as 0 | 1 | 2);
-                        setCraftEssencePickerOpen(true);
-                      }}
-                      title="冠位战右侧三张礼装按位置匹配；留空的位置不校验。"
-                    >
-                      {ce ? `冠${index + 1}: ${ce.name}` : `冠位礼装 ${index + 1}`}
-                    </Button>
-                    <label className="debug-coord-toggle">
-                      <Checkbox
-                        checked={supportGrandCraftEssenceMlbRequired[index]}
-                        onCheckedChange={(checked) => {
-                          setSupportGrandCraftEssenceMlbRequired((prev) => {
-                            const next = [...prev] as [boolean, boolean, boolean];
-                            next[index] = checked === true;
-                            return next;
-                          });
-                        }}
-                      />
-                      <Text size="1">满破</Text>
-                    </label>
-                  </Flex>
-                );
-              })}
-              <Flex gap="1" align="center">
-                <Text size="1" color="gray">
-                  冠2牵绊
-                </Text>
-                <Select.Root
-                  value={supportGrandBondCeMode}
-                  onValueChange={(value) =>
-                    setSupportGrandBondCeMode(value as SupportGrandBondCeMode)
-                  }
-                >
-                  <Select.Trigger aria-label="Debug 冠位第二礼装牵绊形态" />
-                  <Select.Content>
-                    <Select.Item value="any">任意</Select.Item>
-                    <Select.Item value="bond">原始</Select.Item>
-                    <Select.Item value="bondNp">连接</Select.Item>
-                  </Select.Content>
-                </Select.Root>
-              </Flex>
-              {supportGrandCraftEssenceIds.some((id) => id != null) && (
-                <Button
-                  type="button"
-                  size="1"
-                  variant="ghost"
-                  color="gray"
-                  onClick={() => {
-                    setSupportGrandCraftEssenceIds([null, null, null]);
-                    setSupportGrandCraftEssenceMlbRequired([true, true, true]);
-                    setSupportGrandBondCeMode("any");
-                  }}
-                >
-                  清除冠位礼装
-                </Button>
-              )}
+              <Text size="1" color="gray">
+                {supportSettingsSummary}
+              </Text>
               <Button
                 type="button"
                 size="1"
@@ -2127,77 +2304,6 @@ export function DebugPage({
             </Flex>
           </DebugSection>
 
-          <DebugSection
-            title="数字识别区域"
-            help={DEBUG_SECTION_HELP.digitRegions}
-            badge={showDigitRecognitionRegions ? "on" : "off"}
-          >
-            <Flex justify="between" align="center" gap="3" wrap="wrap">
-              <Flex gap="2" align="center" wrap="wrap" className="debug-toolbar">
-                <label className="debug-coord-toggle">
-                  <Checkbox
-                    checked={showDigitRecognitionRegions}
-                    onCheckedChange={(checked) =>
-                      setShowDigitRecognitionRegions(checked === true)
-                    }
-                  />
-                  <Text size="1">标记数字取值位置</Text>
-                </label>
-                <Text size="1" color="gray">
-                  标记当前回合数，以及三个宝具槽的百位、十位和个位。
-                </Text>
-              </Flex>
-              <Button
-                type="button"
-                size="1"
-                disabled={!capture || recognizingDigitRegions}
-                onClick={handleRecognizeDigitRegions}
-              >
-                {recognizingDigitRegions ? "识别中…" : "识别"}
-              </Button>
-            </Flex>
-          </DebugSection>
-
-          <DebugSection
-            title="坐标叠层"
-            help={DEBUG_SECTION_HELP.coordOverlay}
-            badge={
-              showCoordOverlay
-                ? `${visibleCoordGroups.size} / ${coordinates?.groups.length ?? 0}`
-                : "off"
-            }
-          >
-            <Flex gap="2" align="center" wrap="wrap" className="debug-toolbar">
-              <label className="debug-coord-toggle">
-                <Checkbox
-                  checked={showCoordOverlay}
-                  onCheckedChange={(checked) =>
-                    setShowCoordOverlay(checked === true)
-                  }
-                />
-                <Text size="1">坐标叠层</Text>
-              </label>
-              {coordinates?.groups.map((g) => (
-                <label key={g.id} className="debug-coord-toggle">
-                  <Checkbox
-                    disabled={!showCoordOverlay}
-                    checked={visibleCoordGroups.has(g.id)}
-                    onCheckedChange={(checked) => {
-                      setVisibleCoordGroups((prev) => {
-                        const next = new Set(prev);
-                        if (checked === true) next.add(g.id);
-                        else next.delete(g.id);
-                        return next;
-                      });
-                    }}
-                  />
-                  <Text size="1" color={showCoordOverlay ? undefined : "gray"}>
-                    {g.label}
-                  </Text>
-                </label>
-              ))}
-            </Flex>
-          </DebugSection>
 
           <Box className="debug-log-container">
             <Flex justify="between" align="center" style={{ marginBottom: 6 }}>
@@ -2799,7 +2905,11 @@ export function DebugPage({
               {supportResult?.supports.map((s, i) => (
                 <Box
                   key={`support-side-${i}`}
-                  className={`debug-match-entry ${s.scoreFilterPassed === false ? "missed" : "found"}`}
+                  className={`debug-match-entry ${
+                    s.scoreFilterPassed === false || s.levelFilterPassed === false
+                      ? "missed"
+                      : "found"
+                  }`}
                 >
                   <Flex justify="between" align="center">
                     <Text size="2" weight="medium">
@@ -2845,6 +2955,16 @@ export function DebugPage({
                     <Text size="1" color="red">
                       分值识别失败 · ✗ {s.scoreFilterReason ?? "未达标"}
                       {s.scoreText ? `（OCR: ${s.scoreText}）` : ""}
+                    </Text>
+                  )}
+                  {s.levelFilterPassed === true && (
+                    <Text size="1" color="green">
+                      等级筛选 · ✓ 达标
+                    </Text>
+                  )}
+                  {s.levelFilterPassed === false && (
+                    <Text size="1" color="red">
+                      等级筛选 · ✗ {s.levelFilterReason ?? "未达标"}
                     </Text>
                   )}
                   {s.skillPanel && (
@@ -3031,6 +3151,46 @@ export function DebugPage({
           </DebugSection>
         </Flex>
       </Flex>
+      {supportSettingsOpen && (
+        <SupportSettingsDialog
+          open={supportSettingsOpen}
+          project={supportSettingsProject}
+          servant={selectedSupportServant ?? null}
+          portraitSrc={
+            selectedSupportServant
+              ? supportPortraitMap[selectedSupportServant.variantKey] ?? null
+              : null
+          }
+          slotNumber={1}
+          craftEssenceGroups={supportCraftEssenceGroups}
+          onCraftEssenceOpen={(index, grandMode) => {
+            if (grandMode) {
+              setCraftEssencePickerTarget(index as 0 | 1 | 2);
+            } else {
+              setCraftEssencePickerTarget("single");
+            }
+            setCraftEssencePickerOpen(true);
+          }}
+          onOpenChange={setSupportSettingsOpen}
+          onConfirm={handleSupportSettingsConfirm}
+        />
+      )}
+      <TemplateKeyPickerDialog
+        open={templatePickerOpen}
+        onOpenChange={setTemplatePickerOpen}
+        templates={templateThumbnails}
+        selectedKey={rawTemplateInput.trim() || null}
+        onSelect={(key) => {
+          setRawTemplateInput(key);
+          log(`选择模板 key: ${key}`);
+        }}
+      />
+      <TemplatePreviewDialog
+        templateKey={previewTemplateKey}
+        onOpenChange={(open) => {
+          if (!open) setPreviewTemplateKey(null);
+        }}
+      />
       <ServantSelectDialog
         open={servantPickerTarget !== null}
         onOpenChange={(open) => {

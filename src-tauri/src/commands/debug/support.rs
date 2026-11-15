@@ -59,6 +59,12 @@ pub struct DebugSupportRow {
     pub score_filter_passed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub score_filter_reason: Option<String>,
+    /// Same verdict for the level / NP / skill requirements configured in the
+    /// shared battle-style support settings panel.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level_filter_passed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level_filter_reason: Option<String>,
     /// Present only when the caller passed a `craft_essence_id` *and*
     /// the template was resolvable. Absent rows render exactly like the
     /// pre-CE behaviour so the overlay stays backwards-compatible.
@@ -78,10 +84,88 @@ pub struct DebugSupportScoreFilter {
 
 #[derive(serde::Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct DebugSupportLevelFilter {
+    pub servant_level_min: Option<u32>,
+    pub noble_phantasm_level_min: Option<u32>,
+    pub skill_level_mins: [Option<u32>; 3],
+    pub append_skill_level_mins: [Option<u32>; 5],
+}
+
+/// Evaluate one row against the runner's level / NP / skill requirements.
+///
+/// Skill panels are read from whatever the sidecar OCR'd (the debug page
+/// cannot toggle them for the user), so a configured skill requirement whose
+/// panel isn't on screen is reported as such instead of silently passing.
+pub(crate) fn debug_support_level_filter_reason(
+    row: &SupportRowMatch,
+    servant_level_min: Option<u32>,
+    noble_phantasm_level_min: Option<u32>,
+    skill_level_mins: &[Option<u32>; 3],
+    append_skill_level_mins: &[Option<u32>; 5],
+) -> Option<String> {
+    if let Some(min) = servant_level_min {
+        if !row.servant_level.is_some_and(|level| level >= min) {
+            return Some(format!(
+                "从者等级 ≥ {}（实际 {}）",
+                min,
+                runner::format_actual_level(row.servant_level),
+            ));
+        }
+    }
+    if let Some(min) = noble_phantasm_level_min {
+        if !row.np_level.is_some_and(|level| level >= min) {
+            return Some(format!(
+                "宝具 ≥ {}（实际 {}）",
+                min,
+                runner::format_actual_level(row.np_level),
+            ));
+        }
+    }
+    if skill_level_mins.iter().any(Option::is_some) {
+        match row.skill_panel.as_deref() {
+            Some("owned") => {
+                if let Some((index, actual, min)) =
+                    runner::support_first_level_mismatch(&row.skill_levels, skill_level_mins)
+                {
+                    return Some(format!(
+                        "持有技能 {} ≥ {}（实际 {}）",
+                        index + 1,
+                        min,
+                        runner::format_actual_level(actual),
+                    ));
+                }
+            }
+            _ => return Some("持有技能面板未展开（切到持有技能面板后再识别）".into()),
+        }
+    }
+    if append_skill_level_mins.iter().any(Option::is_some) {
+        match row.skill_panel.as_deref() {
+            Some("append") => {
+                if let Some((index, actual, min)) = runner::support_first_level_mismatch(
+                    &row.append_skill_levels,
+                    append_skill_level_mins,
+                ) {
+                    return Some(format!(
+                        "追加技能 {} ≥ {}（实际 {}）",
+                        index + 1,
+                        min,
+                        runner::format_actual_level(actual),
+                    ));
+                }
+            }
+            _ => return Some("追加技能面板未展开（切到追加技能面板后再识别）".into()),
+        }
+    }
+    None
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct DebugFindSupportsResult {
     pub supports: Vec<DebugSupportRow>,
     pub diagnostics: SupportDiagnostics,
     pub score_filter: DebugSupportScoreFilter,
+    pub level_filter: DebugSupportLevelFilter,
 }
 
 /// Use the same confirm-button-anchored CE strip as the runner.
@@ -124,6 +208,10 @@ pub fn debug_find_supports(
     support_grand_mode: Option<bool>,
     support_star_map_score_min: Option<u32>,
     support_grand_star_map_score_min: Option<u32>,
+    support_servant_level_min: Option<u32>,
+    support_noble_phantasm_level_min: Option<u32>,
+    support_skill_level_mins: Option<[Option<u32>; 3]>,
+    support_append_skill_level_mins: Option<[Option<u32>; 5]>,
     release_ocr: Option<bool>,
 ) -> Result<DebugFindSupportsResult, String> {
     require_automation_idle(
@@ -144,6 +232,12 @@ pub fn debug_find_supports(
         support_grand_star_map_score_min.map(|score| score.min(16));
     let score_filter_configured = support_star_map_score_min.is_some()
         || (support_grand_mode && support_grand_star_map_score_min.is_some());
+    let skill_level_mins = support_skill_level_mins.unwrap_or([None; 3]);
+    let append_skill_level_mins = support_append_skill_level_mins.unwrap_or([None; 5]);
+    let level_filter_configured = support_servant_level_min.is_some()
+        || support_noble_phantasm_level_min.is_some()
+        || skill_level_mins.iter().any(Option::is_some)
+        || append_skill_level_mins.iter().any(Option::is_some);
 
     let image_path = debug_image_path(&app);
     if !image_path.exists() {
@@ -399,10 +493,24 @@ pub fn debug_find_supports(
             })
             .flatten();
         let score_filter_passed = score_filter_configured.then_some(score_filter_reason.is_none());
+        let level_filter_reason = level_filter_configured
+            .then(|| {
+                debug_support_level_filter_reason(
+                    &row,
+                    support_servant_level_min,
+                    support_noble_phantasm_level_min,
+                    &skill_level_mins,
+                    &append_skill_level_mins,
+                )
+            })
+            .flatten();
+        let level_filter_passed = level_filter_configured.then_some(level_filter_reason.is_none());
         supports.push(DebugSupportRow {
             row,
             score_filter_passed,
             score_filter_reason,
+            level_filter_passed,
+            level_filter_reason,
             ce,
             grand_ces,
         });
@@ -416,5 +524,134 @@ pub fn debug_find_supports(
             star_map_score_min: support_star_map_score_min,
             grand_star_map_score_min: support_grand_star_map_score_min,
         },
+        level_filter: DebugSupportLevelFilter {
+            servant_level_min: support_servant_level_min,
+            noble_phantasm_level_min: support_noble_phantasm_level_min,
+            skill_level_mins,
+            append_skill_level_mins,
+        },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::debug_support_level_filter_reason;
+    use crate::screen::{NormRect, Point, SupportRowMatch};
+
+    fn support_row(
+        servant_level: Option<u32>,
+        np_level: Option<u32>,
+        panel: Option<&str>,
+        skills: Vec<Option<u32>>,
+        append: Vec<Option<u32>>,
+    ) -> SupportRowMatch {
+        let region = NormRect {
+            x: 0.1,
+            y: 0.5,
+            w: 0.4,
+            h: 0.1,
+        };
+        SupportRowMatch {
+            row_region: region,
+            tap: Point::new(0.3, 0.55),
+            name_text: "哈贝特洛特".into(),
+            name_score: 1.0,
+            name_matched_name: None,
+            name_region: region,
+            np_text: "为你纺织的时光之轮等级5".into(),
+            np_score: 1.0,
+            np_region: region,
+            score_anchor: None,
+            score_region: None,
+            star_map_score: None,
+            grand_star_map_score: None,
+            score_text: None,
+            score_confidence: None,
+            np_matched_name: "为你纺织的时光之轮".into(),
+            np_level,
+            servant_level,
+            skill_panel: panel.map(str::to_string),
+            skill_levels: skills,
+            append_skill_levels: append,
+            skill_level_diagnostics: Vec::new(),
+            elapsed_ms: None,
+        }
+    }
+
+    const NO_SKILLS: [Option<u32>; 3] = [None, None, None];
+    const NO_APPEND: [Option<u32>; 5] = [None, None, None, None, None];
+
+    #[test]
+    fn level_filter_passes_when_every_requirement_is_met() {
+        let row = support_row(
+            Some(120),
+            Some(5),
+            Some("owned"),
+            vec![Some(10), Some(9), Some(8)],
+            vec![],
+        );
+        let mins: [Option<u32>; 3] = [Some(10), Some(8), None];
+        assert_eq!(
+            debug_support_level_filter_reason(&row, Some(100), Some(3), &mins, &NO_APPEND),
+            None
+        );
+    }
+
+    #[test]
+    fn level_filter_reports_servant_level_and_np_level_gaps() {
+        let row = support_row(Some(90), Some(2), None, vec![], vec![]);
+        assert_eq!(
+            debug_support_level_filter_reason(&row, Some(100), None, &NO_SKILLS, &NO_APPEND),
+            Some("从者等级 ≥ 100（实际 90）".into())
+        );
+        assert_eq!(
+            debug_support_level_filter_reason(&row, None, Some(3), &NO_SKILLS, &NO_APPEND),
+            Some("宝具 ≥ 3（实际 2）".into())
+        );
+        let unread = support_row(None, None, None, vec![], vec![]);
+        assert_eq!(
+            debug_support_level_filter_reason(&unread, Some(100), None, &NO_SKILLS, &NO_APPEND),
+            Some("从者等级 ≥ 100（实际 -）".into())
+        );
+    }
+
+    #[test]
+    fn level_filter_needs_the_matching_skill_panel() {
+        let row = support_row(
+            Some(120),
+            Some(5),
+            Some("owned"),
+            vec![Some(10), Some(8), Some(8)],
+            vec![],
+        );
+        let mins: [Option<u32>; 3] = [Some(10), Some(10), None];
+        assert_eq!(
+            debug_support_level_filter_reason(&row, None, None, &mins, &NO_APPEND),
+            Some("持有技能 2 ≥ 10（实际 8）".into())
+        );
+
+        let append_only: [Option<u32>; 5] = [Some(10), None, None, None, None];
+        assert_eq!(
+            debug_support_level_filter_reason(&row, None, None, &NO_SKILLS, &append_only),
+            Some("追加技能面板未展开（切到追加技能面板后再识别）".into())
+        );
+
+        let append_row = support_row(
+            Some(120),
+            Some(5),
+            Some("append"),
+            vec![],
+            vec![Some(10), Some(10), None, None, None],
+        );
+        assert_eq!(
+            debug_support_level_filter_reason(
+                &append_row,
+                None,
+                None,
+                &NO_SKILLS,
+                &append_only
+            ),
+            None
+        );
+    }
 }

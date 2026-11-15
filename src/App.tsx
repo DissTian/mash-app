@@ -1176,6 +1176,7 @@ function App({
               servants={servants}
               craftEssences={craftEssences}
               defaultCardServantIds={partyServantIds}
+              projects={projects}
             />
           ) : (
             <Box className={`main-content-inner workspace-page ${view === "command" ? "command-stage" : "formation-stage"}`}>

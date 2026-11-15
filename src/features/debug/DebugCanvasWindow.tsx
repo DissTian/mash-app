@@ -14,7 +14,6 @@ const EMPTY_STATE: DebugCanvasState = {
   supportResult: null,
   coordinates: null,
   showDigitRecognitionRegions: false,
-  showCoordOverlay: false,
   visibleCoordGroups: [],
 };
 

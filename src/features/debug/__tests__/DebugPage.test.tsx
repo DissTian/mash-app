@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderWithTheme } from "../../../test/renderWithTheme";
-import { DebugPage } from "../DebugPage";
+import { DebugPage, type DebugPageProps } from "../DebugPage";
 import type { CraftEssence } from "../../../types/craftEssence";
 import type { Servant } from "../../../types/servant";
 import { invoke } from "@tauri-apps/api/core";
@@ -71,13 +71,14 @@ describe("DebugPage", () => {
     }
   });
 
-  function renderDebugPage() {
+  function renderDebugPage(extraProps: Partial<DebugPageProps> = {}) {
     renderWithTheme(
       <DebugPage
         onBack={() => {}}
         servants={SERVANTS}
         craftEssences={CRAFT_ESSENCES}
         defaultCardServantIds={[]}
+        {...extraProps}
       />
     );
   }
@@ -89,7 +90,7 @@ describe("DebugPage", () => {
       switch (cmd) {
         case "debug_get_cv_config":
           return { screens: {} };
-        case "debug_list_templates":
+        case "debug_list_template_files":
         case "debug_list_servant_assets":
           return [];
         case "debug_get_runner_coordinates":
@@ -100,77 +101,23 @@ describe("DebugPage", () => {
     });
   }
 
-  it("offers a toggle for digit recognition source regions", () => {
-    renderDebugPage();
-
-    expect(
-      screen.getByRole("checkbox", { name: "标记数字取值位置" })
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "识别" })).toBeDisabled();
-  });
-
-  it("recognizes configured digit regions only after the manual button is clicked", async () => {
+  it("offers the digit-region toggle only in the canvas view", async () => {
+    mockDebugPageBootstrap(() => null);
     const user = userEvent.setup();
-    mockDebugPageBootstrap((cmd) => {
-      if (cmd === "debug_capture") {
-        return {
-          imagePath: "/tmp/debug.png",
-          screen: "Battle",
-          score: 0.95,
-          screenSize: { w: 1920, h: 1080 },
-        };
-      }
-      if (cmd === "debug_read_noble_phantasm_gauges") {
-        return [
-          {
-            slot: 0,
-            cardRegion: { x: 0.241, y: 0.097, w: 0.187, h: 0.396 },
-            ready: false,
-            edgeFrac: 0,
-            stdBgr: 0,
-            gaugeDigitModelLabels: ["1", "0", "0"],
-            turnCountModelLabel: "4",
-          },
-          {
-            slot: 1,
-            cardRegion: { x: 0.41, y: 0.097, w: 0.187, h: 0.396 },
-            ready: false,
-            edgeFrac: 0,
-            stdBgr: 0,
-            gaugeDigitModelLabels: ["未识别", "6", "0"],
-            turnCountModelLabel: "4",
-          },
-          {
-            slot: 2,
-            cardRegion: { x: 0.603, y: 0.097, w: 0.187, h: 0.396 },
-            ready: false,
-            edgeFrac: 0,
-            stdBgr: 0,
-            gaugeDigitModelLabels: ["1", "9", "0"],
-            turnCountModelLabel: "4",
-          },
-        ];
-      }
-      return null;
-    });
-
     renderDebugPage();
-    await user.click(screen.getByRole("button", { name: "截取画面" }));
 
+    // The standalone 数字识别区域 row was removed; the trigger lives in the
+    // coordinate-overlay bar under the canvas, so the tools view has none.
+    expect(screen.queryByText("数字识别区域")).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "数字取值位置" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "调试画面" }));
     expect(
-      vi.mocked(invoke).mock.calls.some(
-        ([cmd]) => cmd === "debug_read_noble_phantasm_gauges"
-      )
-    ).toBe(false);
-
-    await user.click(screen.getByRole("button", { name: "识别" }));
-
-    expect(
-      await screen.findByText(
-        /数字识别：回合=4；NP1\[百=1 十=0 个=0\]；NP2\[百=未识别 十=6 个=0\]；NP3\[百=1 十=9 个=0\]/
-      )
+      screen.getByRole("checkbox", { name: "数字取值位置" })
     ).toBeInTheDocument();
-    expect(invoke).toHaveBeenCalledWith("debug_read_noble_phantasm_gauges");
+
+    await user.click(screen.getByRole("button", { name: "工具" }));
+    expect(screen.queryByRole("checkbox", { name: "数字取值位置" })).toBeNull();
   });
 
   it("renders live scrcpy frames as data URLs for dynamic preview", async () => {
@@ -292,16 +239,154 @@ describe("DebugPage", () => {
     expect(screen.queryByPlaceholderText(/候选从者 id/)).not.toBeInTheDocument();
   });
 
+  it("applies a saved team's support configuration to the debug fields", async () => {
+    const user = userEvent.setup();
+    mockDebugPageBootstrap((cmd) => {
+      if (cmd === "debug_capture") {
+        return {
+          imagePath: "/tmp/debug.png",
+          screen: "SupportSelect",
+          score: 0.95,
+          screenSize: { w: 1920, h: 1080 },
+        };
+      }
+      return null;
+    });
+    renderDebugPage({
+      projects: [
+        {
+          id: "p1",
+          name: "常用队伍",
+          supportServantId: 284,
+          supportServantVariantKey: "284",
+          supportGrandMode: true,
+          supportStarMapScoreMin: 40,
+          supportGrandStarMapScoreMin: 12,
+          slots: [
+            { id: "slot-0", type: "servant", servantId: 150 },
+            {
+              id: "slot-1",
+              type: "support",
+              servantId: null,
+              craftEssenceIds: [2],
+              craftEssenceMlbRequired: false,
+            },
+          ],
+        },
+      ],
+    });
+
+    await user.click(await screen.findByRole("combobox", { name: "助战队伍配置" }));
+    await user.click(await screen.findByRole("option", { name: "常用队伍" }));
+
+    expect(
+      await screen.findByRole("button", { name: "阿尔托莉雅·卡斯特" })
+    ).toBeInTheDocument();
+    expect(document.body.textContent).toContain("套用队伍「常用队伍」的助战配置");
+
+    expect(document.body.textContent).toContain("星图≥40");
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    expect(screen.getByRole("spinbutton", { name: "星图分值" })).toHaveValue(40);
+  });
+
+  it("picks a template key from the list and previews its PNG", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockImplementation(async (cmd) => {
+      switch (cmd) {
+        case "debug_get_cv_config":
+          return { screens: {} };
+        case "debug_list_template_files":
+          return [
+            { templateKey: "battle/attack_button", path: "/tmp/t/a.png" },
+            { templateKey: "battle/battle_action_menu", path: "/tmp/t/b.png" },
+          ];
+        case "debug_list_servant_assets":
+          return [];
+        case "debug_get_runner_coordinates":
+          return { groups: [] };
+        case "debug_read_template_image":
+          return {
+            templateKey: "battle/attack_button",
+            path: "/tmp/templates/battle/attack_button.png",
+            dataUrl: "data:image/png;base64,AAAA",
+            sizeBytes: 12,
+          };
+        default:
+          return null;
+      }
+    });
+    renderDebugPage();
+
+    await user.click(
+      await screen.findByRole("button", { name: "选择模板 key" })
+    );
+    await user.click(
+      await screen.findByRole("option", { name: "battle/attack_button" })
+    );
+    expect(
+      screen.getByRole("button", { name: "battle/attack_button" })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "预览" }));
+
+    expect(
+      await screen.findByRole("img", { name: "模板 battle/attack_button" })
+    ).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("debug_read_template_image", {
+      templateKey: "battle/attack_button",
+    });
+  });
+
+  it("draws coordinate overlays from group checkboxes without a master switch", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockImplementation(async (cmd) => {
+      switch (cmd) {
+        case "debug_get_cv_config":
+          return { screens: {} };
+        case "debug_list_template_files":
+        case "debug_list_servant_assets":
+          return [];
+        case "debug_get_runner_coordinates":
+          return {
+            groups: [
+              {
+                id: "battle",
+                label: "战斗",
+                points: [
+                  { label: "点击攻击按钮", point: { x: 0.8, y: 0.82 } },
+                ],
+                regions: [],
+              },
+            ],
+          };
+        default:
+          return null;
+      }
+    });
+    renderDebugPage();
+    await user.click(screen.getByRole("button", { name: "调试画面" }));
+
+    const group = await screen.findByRole("checkbox", { name: "战斗" });
+    expect(screen.queryByRole("checkbox", { name: "坐标叠层" })).toBeNull();
+    expect(group).not.toBeChecked();
+
+    await user.click(group);
+
+    expect(screen.getByRole("checkbox", { name: "战斗" })).toBeChecked();
+  });
+
   it("selects the optional support craft essence by searchable name", async () => {
     const user = userEvent.setup();
     renderDebugPage();
 
-    await user.click(screen.getByRole("button", { name: "选择礼装 (可选)" }));
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    await user.click(screen.getByRole("button", { name: "配置助战礼装" }));
     await user.type(screen.getByPlaceholderText("搜索礼装名称..."), "黑");
     await user.click(screen.getByRole("option", { name: /黑之圣杯/ }));
+    await user.click(screen.getByRole("button", { name: "应用并关闭" }));
 
-    expect(screen.getByRole("button", { name: "黑之圣杯" })).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/礼装 id/)).not.toBeInTheDocument();
+    expect(document.body.textContent).toContain("礼装满破");
   });
 
   it("uses the selected servant variant for support metadata and OCR", async () => {
@@ -373,15 +458,14 @@ describe("DebugPage", () => {
     );
     await user.click(screen.getByRole("option", { name: /星之希耶尔/ }));
     await user.click(screen.getByRole("button", { name: "截取画面" }));
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    await user.type(screen.getByRole("spinbutton", { name: "星图分值" }), "62");
+    await user.click(screen.getByRole("switch", { name: "冠位从者" }));
     await user.type(
-      screen.getByRole("spinbutton", { name: "Debug 星图分值" }),
-      "62"
-    );
-    await user.click(screen.getByRole("checkbox", { name: "冠位分值" }));
-    await user.type(
-      screen.getByRole("spinbutton", { name: "Debug 冠位星图分值" }),
+      screen.getByRole("spinbutton", { name: "冠位星图分值" }),
       "16"
     );
+    await user.click(screen.getByRole("button", { name: "应用并关闭" }));
     await user.click(screen.getByRole("button", { name: "识别助战" }));
 
     await waitFor(() =>
@@ -513,31 +597,43 @@ describe("DebugPage", () => {
 
   it("prints the raw template match center after a successful probe", async () => {
     const user = userEvent.setup();
-    mockDebugPageBootstrap((cmd) => {
-      if (cmd === "debug_capture") {
-        return {
-          imagePath: "/tmp/debug.png",
-          screen: "CraftEssenceEnhancement",
-          score: 0.95,
-          screenSize: { w: 1920, h: 1080 },
-        };
+    vi.mocked(invoke).mockImplementation(async (cmd) => {
+      switch (cmd) {
+        case "debug_get_cv_config":
+          return { screens: {} };
+        case "debug_list_template_files":
+          return [{ templateKey: "shared/test", path: "/tmp/templates/shared/test.png" }];
+        case "debug_list_servant_assets":
+          return [];
+        case "debug_get_runner_coordinates":
+          return { groups: [] };
+        case "debug_capture":
+          return {
+            imagePath: "/tmp/debug.png",
+            screen: "CraftEssenceEnhancement",
+            score: 0.95,
+            screenSize: { w: 1920, h: 1080 },
+          };
+        case "debug_find_element":
+          return {
+            found: true,
+            x: 0.888,
+            y: 0.145,
+            score: 0.998,
+            region: { x: 0.868, y: 0.129, w: 0.04, h: 0.034 },
+          };
+        default:
+          return null;
       }
-      if (cmd === "debug_find_element") {
-        return {
-          found: true,
-          x: 0.888,
-          y: 0.145,
-          score: 0.998,
-          region: { x: 0.868, y: 0.129, w: 0.04, h: 0.034 },
-        };
-      }
-      return null;
     });
 
     renderDebugPage();
 
     await user.click(screen.getByRole("button", { name: "截取画面" }));
-    await user.type(screen.getByPlaceholderText("模板 key"), "shared/test");
+    await user.click(screen.getByRole("button", { name: "选择模板 key" }));
+    await user.click(
+      await screen.findByRole("option", { name: "shared/test" })
+    );
     await user.click(screen.getByRole("button", { name: "查找" }));
 
     expect(
@@ -700,6 +796,8 @@ describe("DebugPage", () => {
     expect(
       await screen.findByRole("dialog", { name: "原始模板探针" })
     ).toBeInTheDocument();
-    expect(screen.getByText(/输入模板 key 与阈值后点「查找」/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/点模板 key 按钮从列表里按缩略图选择/)
+    ).toBeInTheDocument();
   });
 });
