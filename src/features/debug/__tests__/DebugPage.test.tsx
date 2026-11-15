@@ -785,6 +785,77 @@ describe("DebugPage", () => {
     expect(screen.getByText(/· 12\.5 ms/)).toBeInTheDocument();
   });
 
+  it("records every debug action in the match history", async () => {
+    const user = userEvent.setup();
+    vi.mocked(invoke).mockImplementation(async (cmd) => {
+      switch (cmd) {
+        case "debug_get_cv_config":
+          return { screens: {} };
+        case "debug_list_template_files":
+          return [{ templateKey: "shared/test", path: "/tmp/t.png" }];
+        case "debug_list_servant_assets":
+          return [];
+        case "debug_get_runner_coordinates":
+          return { groups: [] };
+        case "debug_capture":
+          return {
+            imagePath: "/tmp/d.png",
+            screen: "Battle",
+            score: 0.9,
+            screenSize: { w: 1920, h: 1080 },
+          };
+        case "debug_find_command_cards":
+          return [
+            {
+              slot: 0,
+              x: 0.1,
+              y: 0.5,
+              cardRegion: { x: 0, y: 0.46, w: 0.2, h: 0.4 },
+              faceRegion: { x: 0.04, y: 0.55, w: 0.11, h: 0.14 },
+              suit: "a",
+              servantId: 16,
+              ascension: 1,
+              faceScore: 0.93,
+              isSupport: false,
+              isStunned: false,
+            },
+          ];
+        case "debug_find_attack_button":
+          return {
+            template: "shared/battle/button_attack",
+            region: { x: 0.875, y: 0.875, w: 0.091, h: 0.093 },
+            threshold: 0.75,
+            tapPoint: { x: 0.92, y: 0.92 },
+            found: true,
+            score: 0.98,
+            matchX: 0.92,
+            matchY: 0.92,
+            matchRegion: null,
+          };
+        default:
+          return null;
+      }
+    });
+    renderDebugPage();
+
+    await user.click(screen.getByRole("button", { name: "截取画面" }));
+    await user.click(screen.getByRole("button", { name: "识别指令卡" }));
+    await user.click(screen.getByRole("button", { name: "识别攻击按钮" }));
+
+    const history = (
+      await screen.findByText("匹配历史")
+    ).closest("details") as HTMLElement;
+    expect(history).not.toBeNull();
+    expect(within(history).getByText("截取画面")).toBeInTheDocument();
+    expect(within(history).getByText("指令卡识别")).toBeInTheDocument();
+    expect(within(history).getByText(/1 张 · 归属 1\/1/)).toBeInTheDocument();
+    expect(within(history).getByText("攻击按钮识别")).toBeInTheDocument();
+    expect(within(history).getByText(/命中 · 98\.0% \/ 阈值 75%/)).toBeInTheDocument();
+
+    await user.click(within(history).getByRole("button", { name: "清空历史" }));
+    expect(within(history).getByText(/暂无记录/)).toBeInTheDocument();
+  });
+
   it("explains an option row from its question button", async () => {
     mockDebugPageBootstrap(() => null);
     const user = userEvent.setup();

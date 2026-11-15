@@ -61,6 +61,7 @@ import type {
   CommandCardMatchDto,
   DebugCaptureResult,
   DebugStreamFrameResultDto,
+  DebugHistoryEntry,
   DebugTemplateFileDto,
   DebugStreamStatusDto,
   ElementMatchDto,
@@ -182,6 +183,7 @@ export function DebugPage({
   );
 
   const [probes, setProbes] = useState<ProbeResult[]>([]);
+  const [history, setHistory] = useState<DebugHistoryEntry[]>([]);
   const [previewTemplateKey, setPreviewTemplateKey] = useState<string | null>(
     null
   );
@@ -563,6 +565,27 @@ export function DebugPage({
     return resolveElementSpec(selectedScreen, selectedElement);
   }, [cvConfig, resolveElementSpec, selectedScreen, selectedElement]);
 
+  const pushHistory = useCallback(
+    (entry: Omit<DebugHistoryEntry, "id" | "timestamp">) => {
+      setHistory((prev) =>
+        [
+          {
+            ...entry,
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            timestamp: timestamp(),
+          },
+          ...prev,
+        ].slice(0, 60)
+      );
+    },
+    []
+  );
+
+  const clearHistory = useCallback(() => {
+    setHistory([]);
+    log("已清空匹配历史");
+  }, [log]);
+
   const captureFrame = useCallback(
     async (options: { logResult: boolean; clearOverlays: boolean }) => {
       const result = await debugTiming.run("截取画面", () =>
@@ -580,6 +603,13 @@ export function DebugPage({
         setSupportResult(null);
         setEnhancementServantResult(null);
       }
+      if (options.clearOverlays) {
+        pushHistory({
+          label: "截取画面",
+          summary: `${result.screen} · score ${result.score.toFixed(3)}`,
+          ok: true,
+        });
+      }
       if (options.logResult) {
         log(
           `截图成功 | 画面 = ${result.screen} (score=${result.score.toFixed(3)})` +
@@ -592,7 +622,7 @@ export function DebugPage({
         setSelectedScreen(result.screen);
       }
     },
-    [log, screenNames]
+    [log, pushHistory, screenNames]
   );
 
   const handleCapture = useCallback(async () => {
@@ -723,6 +753,12 @@ export function DebugPage({
       );
       const label = `${selectedScreen}.${selectedElement}`;
       const effectiveThreshold = selectedElementSpec?.threshold ?? 0.8;
+      pushHistory({
+        label,
+        summary: `${match.found ? "命中" : "未命中"} · score ${match.score.toFixed(3)} · 阈值 ${effectiveThreshold.toFixed(2)}`,
+        ok: match.found,
+        elapsedMs: timingEnabled ? probeMs : undefined,
+      });
       setProbes((prev) => [
         {
           label,
@@ -748,7 +784,14 @@ export function DebugPage({
     } finally {
       setProbing(false);
     }
-  }, [selectedScreen, selectedElement, selectedElementSpec, log, timingEnabled]);
+  }, [
+    selectedScreen,
+    selectedElement,
+    selectedElementSpec,
+    log,
+    pushHistory,
+    timingEnabled,
+  ]);
 
   const handleProbeRaw = useCallback(async () => {
     const key = rawTemplateInput.trim();
@@ -774,6 +817,12 @@ export function DebugPage({
         },
         ...prev,
       ]);
+      pushHistory({
+        label: key,
+        summary: `${match.found ? "命中" : "未命中"} · score ${match.score.toFixed(3)} · 阈值 ${threshold.toFixed(2)}`,
+        ok: match.found,
+        elapsedMs: timingEnabled ? probeMs : undefined,
+      });
       if (match.found) {
         log(
           `命中: ${key} | score=${match.score.toFixed(3)} | 中心=(${match.x.toFixed(3)}, ${match.y.toFixed(3)})`
@@ -789,7 +838,7 @@ export function DebugPage({
     } finally {
       setProbing(false);
     }
-  }, [rawTemplateInput, threshold, log, timingEnabled]);
+  }, [rawTemplateInput, threshold, log, pushHistory, timingEnabled]);
 
   const handleClearOverlays = useCallback(() => {
     setProbes([]);
@@ -893,6 +942,16 @@ export function DebugPage({
         })
       );
       setCommandCards(cards);
+      const identified = cards.filter((card) => card.servantId != null).length;
+      pushHistory({
+        label: "指令卡识别",
+        summary:
+          cards.length === 0
+            ? "未识别到指令卡"
+            : `${cards.length} 张 · 归属 ${identified}/${cards.length}`,
+        ok: cards.length > 0,
+        elapsedMs: debugTiming.latest("识别指令卡"),
+      });
       if (cards.length === 0) {
         log("未识别到指令卡 — 检查截图是否为攻击画面", "warn");
       } else {
@@ -911,7 +970,7 @@ export function DebugPage({
     } finally {
       setFindingCards(false);
     }
-  }, [capture, selectedCardServantIds, displayServantName, log]);
+  }, [capture, selectedCardServantIds, displayServantName, log, pushHistory]);
 
   const readNpGauges = useCallback(
     async (options: { logResult: boolean; live: boolean }) => {
@@ -951,10 +1010,16 @@ export function DebugPage({
             ).join("；")}`
           : "";
         log(`${label}: 回合 ${turnCount} · 卡 ${cardReadyCount}/${slots.length} · 条 ${gaugeReadyCount}/${slots.length} | ${summary}${ctcSummary}`);
+        pushHistory({
+          label,
+          summary: `回合 ${turnCount} · 卡 ${cardReadyCount}/${slots.length} · 条 ${gaugeReadyCount}/${slots.length}`,
+          ok: cardReadyCount + gaugeReadyCount > 0,
+          elapsedMs: debugTiming.latest(label),
+        });
       }
       return slots;
     },
-    [log]
+    [log, pushHistory]
   );
 
   const handleDebugNpGauges = useCallback(async () => {
@@ -1031,6 +1096,14 @@ export function DebugPage({
         result.trimmedLeft + result.trimmedRight > 0
           ? ` | 已剔除 ${result.trimmedLeft + result.trimmedRight} 个噪声数字`
           : "";
+      pushHistory({
+        label: "战斗场景识别",
+        summary:
+          result.scene !== null && result.total !== null
+            ? `${result.scene}/${result.total} · ${anchor}`
+            : `未识别（${BATTLE_SCENE_FAIL_HINTS[result.failReason ?? "unknown"] ?? result.failReason ?? "unknown"}）`,
+        ok: result.scene !== null && result.total !== null,
+      });
       if (result.scene !== null && result.total !== null) {
         log(
           `战斗场景: ${result.scene}/${result.total} → 第 ${result.scene} 组指令 | ${anchor} | ${digits}${trimNote}`
@@ -1054,7 +1127,7 @@ export function DebugPage({
     } finally {
       setReadingBattleScene(false);
     }
-  }, [capture, log]);
+  }, [capture, log, pushHistory]);
 
   const handleReadBondLevelUp = useCallback(async () => {
     if (!capture) return;
@@ -1065,6 +1138,13 @@ export function DebugPage({
         invoke<BondLevelUpReadResultDto>("debug_read_bond_level_up")
       );
       setBondLevelUpResult(result);
+      pushHistory({
+        label: "牵绊升级识别",
+        summary: result.ok
+          ? `Lv.${result.bondLevelAfter ?? "?"} · ${result.servantNameMatched ?? result.servantName ?? "未知从者"}`
+          : `未识别（${result.reason ?? "unknown"}）`,
+        ok: result.ok,
+      });
       const confidence = result.confidence;
       const scoreText = [
         `anchor ${debugPercent(confidence?.anchor)}`,
@@ -1088,7 +1168,7 @@ export function DebugPage({
     } finally {
       setReadingBondLevelUp(false);
     }
-  }, [capture, log]);
+  }, [capture, log, pushHistory]);
 
   const handleFindAttackButton = useCallback(async () => {
     if (!capture) return;
@@ -1101,6 +1181,11 @@ export function DebugPage({
       setAttackButton(result);
       const scorePct = (result.score * 100).toFixed(1);
       const thresholdPct = (result.threshold * 100).toFixed(0);
+      pushHistory({
+        label: "攻击按钮识别",
+        summary: `${result.found ? "命中" : "未命中"} · ${scorePct}% / 阈值 ${thresholdPct}%`,
+        ok: result.found,
+      });
       if (result.found) {
         log(
           `攻击按钮: ✓ ${scorePct}% / ${thresholdPct}% | 中心 (${result.matchX.toFixed(3)}, ${result.matchY.toFixed(3)}) | 点击 (${result.tapPoint.x.toFixed(3)}, ${result.tapPoint.y.toFixed(3)})`
@@ -1116,7 +1201,7 @@ export function DebugPage({
     } finally {
       setFindingAttackButton(false);
     }
-  }, [capture, log]);
+  }, [capture, log, pushHistory]);
 
   const handleUseAllAvailableIds = useCallback(() => {
     setSelectedCardServantIds(availableServantIds);
@@ -1151,6 +1236,15 @@ export function DebugPage({
       setEnhancementServantResult(result);
       const sorted = [...result.matches].sort((a, b) => b.score - a.score);
       const best = sorted[0];
+      pushHistory({
+        label: "强化从者头像识别",
+        summary: best
+          ? `#${result.servantId} r${best.row}c${best.col} score ${best.score.toFixed(3)} ${
+              best.found ? "✓" : `✗ < ${result.threshold.toFixed(2)}`
+            }`
+          : `#${result.servantId} 没有可用头像模板`,
+        ok: best?.found === true,
+      });
       log(
         `强化从者网格: size=${result.templateSize.w}×${result.templateSize.h} ` +
           `anchors=${result.anchors.length} cells=${result.gridCells.length} ` +
@@ -1192,6 +1286,7 @@ export function DebugPage({
     enhancementUseLiveFrame,
     displayServantName,
     log,
+    pushHistory,
   ]);
 
   const handleSelectSupportTeam = useCallback(
@@ -1407,6 +1502,15 @@ export function DebugPage({
         })
       );
       setSupportResult(result);
+      pushHistory({
+        label: "助战识别",
+        summary:
+          result.supports.length > 0
+            ? `${result.supports.length} 行 · OCR ${result.diagnostics.fragmentCount} 片段`
+            : "未匹配到助战行",
+        ok: result.supports.length > 0,
+        elapsedMs: debugTiming.latest("识别助战"),
+      });
       const diag = result.diagnostics;
       const scoreFilter = result.scoreFilter;
       const cvInfo =
@@ -1606,6 +1710,7 @@ export function DebugPage({
     supportMetadata,
     displayServantName,
     log,
+    pushHistory,
   ]);
 
   const handleClearLogs = useCallback(() => setLogs([]), []);
@@ -3114,37 +3219,52 @@ export function DebugPage({
           <DebugSection
             title="匹配历史"
             help={DEBUG_SECTION_HELP.matchHistory}
-            badge={probes.length || undefined}
+            badge={history.length || undefined}
+            defaultOpen
           >
+            <Flex justify="between" align="center" mb="2">
+              <Text size="1" color="gray">
+                最近 {history.length} 条（最多保留 60 条）
+              </Text>
+              <Button
+                type="button"
+                size="1"
+                variant="surface"
+                color="gray"
+                disabled={history.length === 0}
+                onClick={clearHistory}
+              >
+                清空历史
+              </Button>
+            </Flex>
             <Box className="debug-match-list">
-              {probes.length === 0 && (
+              {history.length === 0 && (
                 <Text size="1" color="gray">
-                  暂无查询
+                  暂无记录：模板查找、指令卡、宝具、助战、战斗场景、攻击按钮、强化从者识别都会记到这里。
                 </Text>
               )}
-              {probes.map((p, idx) => (
+              {history.map((entry) => (
                 <Box
-                  key={`probe-${idx}`}
-                  className={`debug-match-entry ${p.match.found ? "found" : "missed"}`}
+                  key={entry.id}
+                  className={`debug-match-entry ${
+                    entry.ok === false ? "missed" : "found"
+                  }`}
                 >
                   <Flex justify="between" align="center">
                     <Text size="2" weight="medium">
-                      {p.label}
+                      {entry.label}
                     </Text>
                     <Text size="1" color="gray">
-                      {p.timestamp}
+                      {entry.timestamp}
                     </Text>
                   </Flex>
-                  <Text size="1" color={p.match.found ? "green" : "red"}>
-                    {p.match.found ? "命中" : "未命中"} · score{" "}
-                    {p.match.score.toFixed(3)} · 阈值 {p.threshold.toFixed(2)}
-                    {p.elapsedMs != null ? ` · ${p.elapsedMs} ms` : ""}
+                  <Text
+                    size="1"
+                    color={entry.ok === false ? "red" : entry.ok ? "green" : "gray"}
+                  >
+                    {entry.summary}
+                    {entry.elapsedMs != null ? ` · ${entry.elapsedMs} ms` : ""}
                   </Text>
-                  {p.match.found && (
-                    <Text size="1" color="gray">
-                      中心 ({p.match.x.toFixed(3)}, {p.match.y.toFixed(3)})
-                    </Text>
-                  )}
                 </Box>
               ))}
             </Box>

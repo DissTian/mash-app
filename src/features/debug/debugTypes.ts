@@ -413,3 +413,16 @@ export interface DebugTemplateFileDto {
   templateKey: string;
   path: string;
 }
+
+/** One entry of the debug page's 匹配历史 list. */
+export interface DebugHistoryEntry {
+  id: string;
+  /** Short action name, e.g. "指令卡识别" or the template key. */
+  label: string;
+  /** One-line outcome with the numbers that matter. */
+  summary: string;
+  /** `true` hit/pass, `false` miss/fail, `null` informational. */
+  ok: boolean | null;
+  timestamp: string;
+  elapsedMs?: number;
+}
