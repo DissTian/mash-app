@@ -1252,6 +1252,14 @@ export function DebugPage({
           `直接阈值=${result.diagnostics.directSearchThreshold?.toFixed(2) ?? "-"} ` +
           `attempts=${result.diagnostics.attempts || 1}`
       );
+      if (result.listSevenColumns != null) {
+        log(
+          result.listSevenColumns
+            ? "从者列表密度：7 列（头像模板尺寸匹配）"
+            : `从者列表密度：非 7 列（左下角按钮 score ${(result.listScaleButtonScore ?? 0).toFixed(3)}）；请先切换到 7 列再识别`,
+          result.listSevenColumns ? undefined : "warn"
+        );
+      }
       if (!best) {
         log(
           `从者 #${result.servantId}: 没有可用头像模板 (${result.diagnostics.failReason ?? "unknown"})`,

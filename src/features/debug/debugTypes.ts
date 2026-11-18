@@ -217,6 +217,9 @@ export interface EnhancementServantMatchResultDto {
   gridCells: EnhancementServantGridCellDto[];
   matches: EnhancementServantFaceMatchDto[];
   diagnostics: EnhancementServantDiagnosticsDto;
+  /** Bottom-left density button shows the 7-column icon (CN only). */
+  listSevenColumns?: boolean | null;
+  listScaleButtonScore?: number | null;
 }
 
 export interface DigitMatchDto {

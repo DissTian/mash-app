@@ -20,6 +20,12 @@ pub struct DebugEnhancementServantMatchResult {
     pub grid_cells: Vec<ServantGridCell>,
     pub matches: Vec<ServantGridFaceMatch>,
     pub diagnostics: crate::screen::ServantGridDiagnostics,
+    /// Whether the bottom-left density button shows the 7-column icon. `None`
+    /// when the probe is unavailable (non-CN) or failed.
+    #[serde(default)]
+    pub list_seven_columns: Option<bool>,
+    #[serde(default)]
+    pub list_scale_button_score: Option<f64>,
 }
 
 #[derive(serde::Serialize, Clone, Debug)]
@@ -138,6 +144,20 @@ pub fn debug_find_enhancement_servant(
         result.score,
         result.diagnostics.match_method,
     );
+    let (list_seven_columns, list_scale_button_score) = if server == Server::Cn {
+        match client.probe_template(
+            image_path.as_deref(),
+            cn_runner::LIST_SCALE_BUTTON_TEMPLATE,
+            cn_runner::LIST_SCALE_BUTTON_REGION,
+            cn_runner::LIST_SCALE_BUTTON_THRESHOLD,
+            cn_runner::LIST_SCALE_BUTTON_TEMPLATE_REFERENCE_WIDTH,
+        ) {
+            Ok(probe) => (Some(probe.found), Some(probe.score)),
+            Err(_) => (None, None),
+        }
+    } else {
+        (None, None)
+    };
     Ok(DebugEnhancementServantMatchResult {
         servant_id,
         search_region: region,
@@ -157,5 +177,7 @@ pub fn debug_find_enhancement_servant(
         grid_cells: result.grid_cells,
         matches: result.matches,
         diagnostics: result.diagnostics,
+        list_seven_columns,
+        list_scale_button_score,
     })
 }

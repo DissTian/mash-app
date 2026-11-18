@@ -2550,6 +2550,30 @@ class TestCnServantListFallback:
         assert result["diagnostics"]["failReason"] is None
         assert result["score"] > 0.95
 
+    def test_scale_button_icon_identifies_the_seven_column_layout(self):
+        # The bottom-left density button shows a 4×4 icon only for the
+        # 7-column list the face templates are calibrated for. A 6-column list
+        # shows a 2×2 icon, so the probe must miss and the runner clicks it.
+        assert mash_cv._load_templates(_PROD_CN_TEMPLATES_DIR)["ok"] is True
+        from mash_cv import cv as cv_module
+        cv_module._set_server("CN")
+        command = {
+            "templateKey": "enhancement_ce/button_scale_level_3",
+            "templateReferenceWidth": 2560,
+            "region": {"x": 0.0, "y": 0.89, "w": 0.061, "h": 0.104},
+            "threshold": 0.80,
+        }
+        seven_columns = cv2.imread(
+            os.path.join(_TEST_SCREENSHOTS_DIR, "servant_select_cn_partial.png")
+        )
+        six_columns = cv2.imread(
+            os.path.join(_TEST_SCREENSHOTS_DIR, "servant_select_cn_six_columns.jpg")
+        )
+        assert seven_columns is not None and six_columns is not None
+
+        assert cv_module._probe_template(seven_columns, command)["found"] is True
+        assert cv_module._probe_template(six_columns, command)["found"] is False
+
     def test_no_target_and_explicit_different_portrait_do_not_match(self):
         image = self._image(1920)
         wrong = mash_cv._find_enhancement_servant_grid(image, self._command(1920, stage=3))

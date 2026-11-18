@@ -212,6 +212,22 @@ pub(crate) const TWO_EXP_FACE_MATCH_CROP: NormRect = NormRect {
     h: 0.34,
 };
 
+/// Bottom-left display-density button on the servant list. It cycles the list
+/// through 5/6/7-column layouts; its 4×4 icon (`button_scale_level_3`) is only
+/// shown for the 7-column layout that `SERVANT_FACE_MATCH_CROP` and the face
+/// template size are calibrated for.
+pub(crate) const LIST_SCALE_BUTTON_REGION: NormRect = NormRect {
+    x: 0.0,
+    y: 0.89,
+    w: 0.061,
+    h: 0.104,
+};
+pub(crate) const LIST_SCALE_BUTTON_TEMPLATE: &str = "enhancement_ce/button_scale_level_3";
+pub(crate) const LIST_SCALE_BUTTON_TEMPLATE_REFERENCE_WIDTH: u32 = 2560;
+pub(crate) const LIST_SCALE_BUTTON_THRESHOLD: f64 = 0.80;
+/// Three layouts (5/6/7 columns): at most two taps reach the 7-column state.
+const LIST_SCALE_BUTTON_MAX_TAPS: u32 = 2;
+
 const HOME_MENU_BUTTON: Point = Point::new(0.90, 0.90);
 const HOME_CLOSE_BUTTON: Point = Point::new(0.935, 0.655);
 const HOME_STRENGTHEN_BUTTON: Point = Point::new(0.345, 0.87);
@@ -679,6 +695,7 @@ impl ServantEnhancementRunner {
         let mut progress = SelectionProgress::default();
         let mut list_prepared = false;
         let mut filter_applied = false;
+        let mut scale_checked = false;
         for _ in 0..NAV_MAX_TICKS {
             if self.is_cancelled() {
                 return Ok(SelectionOutcome::Cancelled);
@@ -732,6 +749,12 @@ impl ServantEnhancementRunner {
                 }
                 Screen::Filter => self.tap(FILTER_CANCEL, "关闭筛选")?,
                 Screen::Select => {
+                    if !scale_checked {
+                        // The face templates are sized for the 7-column grid;
+                        // switch the list density before filtering/searching.
+                        self.ensure_seven_column_list()?;
+                        scale_checked = true;
+                    }
                     if !filter_applied {
                         // Filtering by the target's class and rarity keeps the
                         // list short enough to avoid relying on scrolling.
@@ -1006,6 +1029,7 @@ impl ServantEnhancementRunner {
         let mut unknown = 0_u32;
         let mut level_retries = 0_u32;
         let mut recommendation_attempted = false;
+        let mut scale_checked = false;
         loop {
             if self.is_cancelled() {
                 return Ok(EntryOutcome::Cancelled);
@@ -1093,6 +1117,10 @@ impl ServantEnhancementRunner {
                 }
                 Screen::Select => {
                     unknown = 0;
+                    if !scale_checked {
+                        self.ensure_seven_column_list()?;
+                        scale_checked = true;
+                    }
                     match self.find_target_in_list(target, 0.85)? {
                         Some(()) => {
                             self.settle(900);
@@ -1795,15 +1823,81 @@ impl ServantEnhancementRunner {
         region: NormRect,
         threshold: f64,
     ) -> Result<Option<Point>, String> {
+        self.probe_template_point_at(template_key, region, threshold, 1920)
+    }
+
+    fn probe_template_point_at(
+        &mut self,
+        template_key: &str,
+        region: NormRect,
+        threshold: f64,
+        template_reference_width: u32,
+    ) -> Result<Option<Point>, String> {
         let result = self
             .sidecar()
-            .probe_template(None, template_key, region, threshold, 1920)
+            .probe_template(
+                None,
+                template_key,
+                region,
+                threshold,
+                template_reference_width,
+            )
             .map_err(|err| format!("检测 {template_key} 失败: {err}"))?;
         Ok(if result.found {
             Some(Point::new(result.x, result.y))
         } else {
             None
         })
+    }
+
+    /// Make sure the servant list is in its 7-column layout. The list cycles
+    /// through three display densities (5/6/7 columns); the portrait size and
+    /// `SERVANT_FACE_MATCH_CROP` are only calibrated for the densest one. The
+    /// bottom-left button shows a 4×4 grid icon (`button_scale_level_3`)
+    /// exactly in that state, so tap it until the icon matches.
+    fn ensure_seven_column_list(&mut self) -> Result<(), String> {
+        for attempt in 0..=LIST_SCALE_BUTTON_MAX_TAPS {
+            if self
+                .probe_template_point_at(
+                    LIST_SCALE_BUTTON_TEMPLATE,
+                    LIST_SCALE_BUTTON_REGION,
+                    LIST_SCALE_BUTTON_THRESHOLD,
+                    LIST_SCALE_BUTTON_TEMPLATE_REFERENCE_WIDTH,
+                )?
+                .is_some()
+            {
+                if attempt > 0 {
+                    self.emit(
+                        SCREEN_SELECT,
+                        "从者列表已切换为 7 列显示",
+                        LogLevel::Info,
+                    );
+                }
+                return Ok(());
+            }
+            if attempt == LIST_SCALE_BUTTON_MAX_TAPS {
+                break;
+            }
+            self.emit(
+                SCREEN_SELECT,
+                "从者列表不是 7 列，点击左下角切换显示密度",
+                LogLevel::Info,
+            );
+            self.tap(
+                Point::new(
+                    LIST_SCALE_BUTTON_REGION.x + LIST_SCALE_BUTTON_REGION.w / 2.0,
+                    LIST_SCALE_BUTTON_REGION.y + LIST_SCALE_BUTTON_REGION.h / 2.0,
+                ),
+                "切换从者列表显示密度",
+            )?;
+            self.settle(600);
+        }
+        self.emit(
+            SCREEN_SELECT,
+            "未能确认从者列表为 7 列，继续按 7 列搜索",
+            LogLevel::Warn,
+        );
+        Ok(())
     }
 
     /// Poll a small region every 20 ms until the template appears (or timeout).

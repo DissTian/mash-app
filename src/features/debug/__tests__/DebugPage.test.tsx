@@ -756,6 +756,8 @@ describe("DebugPage", () => {
         gridSkipped: true,
         failReason: "no_anchors",
       },
+      listSevenColumns: true,
+      listScaleButtonScore: 0.971,
     };
     mockDebugPageBootstrap((cmd) =>
       cmd === "debug_find_enhancement_servant" ? matchResult : null,
@@ -783,6 +785,9 @@ describe("DebugPage", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/模板缩放: 167 × 167/)).toBeInTheDocument();
     expect(screen.getByText(/· 12\.5 ms/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/从者列表密度：7 列（头像模板尺寸匹配）/),
+    ).toBeInTheDocument();
   });
 
   it("records every debug action in the match history", async () => {
