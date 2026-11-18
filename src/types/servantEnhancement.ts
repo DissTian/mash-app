@@ -15,6 +15,8 @@ export interface ServantEnhancementQueueEntry {
   targetLevel: number;
   twoExp: boolean;
   faceKey: string | null;
+  /** Disabled entries stay in the queue but are skipped by the runner. */
+  enabled: boolean;
 }
 
 export interface ServantEnhancementEntryInput {
@@ -23,6 +25,7 @@ export interface ServantEnhancementEntryInput {
   targetLevel?: number;
   twoExp: boolean;
   faceKey?: string | null;
+  enabled: boolean;
 }
 
 export interface ServantEnhancementEntryState extends ServantEnhancementQueueEntry {

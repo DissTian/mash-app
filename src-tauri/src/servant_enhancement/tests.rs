@@ -207,12 +207,14 @@ fn entry_state_starts_pending_and_copies_settings() {
         target_level: 100,
         two_exp: true,
         face_key: Some("face_servant_3".into()),
+        enabled: true,
     };
     let state = ServantEnhancementEntryState::from_entry(&entry);
     assert_eq!(state.status, EntryStatus::Pending);
     assert_eq!(state.target_level, 100);
     assert!(state.two_exp);
     assert_eq!(state.face_key.as_deref(), Some("face_servant_3"));
+    assert!(state.enabled);
     assert_eq!(state.current_level, None);
     assert!(state.message.is_empty());
 }

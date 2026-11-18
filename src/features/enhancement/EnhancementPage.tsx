@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   Badge,
   Box,
@@ -13,12 +14,30 @@ import {
 } from "@radix-ui/themes";
 import {
   ChevronLeftIcon,
+  DragHandleDots2Icon,
   ExclamationTriangleIcon,
   PlusIcon,
   TrashIcon,
 } from "@radix-ui/react-icons";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { convertFileSrc, invoke, listen } from "../../tauri";
 import { ServantSelectDialog } from "../team/ServantSelectDialog";
+import { moveQueueEntry } from "./queueOrder";
 import type { Servant } from "../../types/servant";
 import type { Server } from "../../types/server";
 import { SERVER_LABELS } from "../../types/server";
@@ -106,7 +125,173 @@ function toInput(entry: ServantEnhancementQueueEntry): ServantEnhancementEntryIn
     targetLevel: entry.targetLevel,
     twoExp: entry.twoExp,
     faceKey: entry.faceKey,
+    enabled: entry.enabled,
   };
+}
+
+interface SortableEnhancementRowProps {
+  entry: ServantEnhancementQueueEntry;
+  state: ServantEnhancementEntryState | undefined;
+  status: ServantEnhancementEntryStatus;
+  facePath: string | null;
+  faceOptions: ServantFaceOption[];
+  editable: boolean;
+  draftLevel: string | undefined;
+  onDraftLevelChange: (value: string) => void;
+  onCommitLevel: () => void;
+  onUpdate: (patch: Partial<ServantEnhancementQueueEntry>) => void;
+  onRemove: () => void;
+}
+
+function SortableEnhancementRow({
+  entry,
+  state,
+  status,
+  facePath,
+  faceOptions,
+  editable,
+  draftLevel,
+  onDraftLevelChange,
+  onCommitLevel,
+  onUpdate,
+  onRemove,
+}: SortableEnhancementRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: entry.id || entry.variantKey, disabled: !editable });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  } as CSSProperties;
+  const currentLevel = state?.currentLevel;
+  const maxLevel = state?.maxLevel;
+  return (
+    <Flex
+      ref={setNodeRef}
+      style={style}
+      align="center"
+      gap="3"
+      data-dragging={isDragging}
+      className={`servant-enhancement-row ${status === "running" ? "running" : ""}${
+        entry.enabled ? "" : " disabled"
+      }`}
+    >
+      <IconButton
+        type="button"
+        variant="ghost"
+        color="gray"
+        className="servant-enhancement-drag"
+        aria-label={`拖动排序 ${entry.nameCn}`}
+        disabled={!editable}
+        {...attributes}
+        {...listeners}
+      >
+        <DragHandleDots2Icon />
+      </IconButton>
+
+      <Box className="servant-enhancement-face">
+        {facePath ? (
+          <img src={convertFileSrc(facePath)} alt="" />
+        ) : (
+          <Text size="1" color="gray">{entry.className.slice(0, 2)}</Text>
+        )}
+      </Box>
+
+      <Box className="servant-enhancement-info">
+        <Flex align="center" gap="2" wrap="wrap">
+          <Text size="2" weight="medium">{entry.nameCn}</Text>
+          <Badge color={status === "pending" && !entry.enabled ? "gray" : statusColor(status)} variant="soft" size="1">
+            {status === "pending" && !entry.enabled ? "已禁用" : statusLabel(status)}
+          </Badge>
+        </Flex>
+        <Text size="1" color="gray">
+          {entry.className} / {entry.rarity}★
+          {currentLevel != null
+            ? ` · 当前 Lv.${currentLevel}${maxLevel != null ? `/${maxLevel}` : ""}`
+            : ""}
+        </Text>
+        {state?.message && (
+          <Text size="1" color={status === "failed" ? "red" : "gray"}>
+            {state.message}
+          </Text>
+        )}
+      </Box>
+
+      <Box className="servant-enhancement-level">
+        <Text size="1" color="gray">目标等级</Text>
+        <TextField.Root
+          type="number"
+          min={1}
+          max={120}
+          value={draftLevel ?? String(entry.targetLevel)}
+          disabled={!editable}
+          onChange={(event) => onDraftLevelChange(event.target.value)}
+          onBlur={onCommitLevel}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+        />
+      </Box>
+
+      <Flex direction="column" gap="1" className="servant-enhancement-toggle">
+        <Text size="1" color="gray">2EXP</Text>
+        <Switch
+          checked={entry.twoExp}
+          disabled={!editable}
+          onCheckedChange={(checked) => onUpdate({ twoExp: checked })}
+        />
+      </Flex>
+
+      <Flex direction="column" gap="1" className="servant-enhancement-toggle">
+        <Text size="1" color="gray">启用</Text>
+        <Switch
+          checked={entry.enabled}
+          disabled={!editable}
+          aria-label={`启用 ${entry.nameCn}`}
+          onCheckedChange={(checked) => onUpdate({ enabled: checked })}
+        />
+      </Flex>
+
+      <Box className="servant-enhancement-face-select">
+        <Text size="1" color="gray">头像</Text>
+        <Select.Root
+          value={entry.faceKey ?? ALL_FACES}
+          disabled={!editable || faceOptions.length === 0}
+          onValueChange={(value) =>
+            onUpdate({ faceKey: value === ALL_FACES ? null : value })
+          }
+        >
+          <Select.Trigger variant="soft" />
+          <Select.Content>
+            <Select.Item value={ALL_FACES}>自动（全部）</Select.Item>
+            {faceOptions.map((option) => (
+              <Select.Item key={option.key} value={option.key}>
+                <Flex align="center" gap="2">
+                  <img
+                    className="servant-enhancement-face-option"
+                    src={convertFileSrc(option.path)}
+                    alt=""
+                  />
+                  <Text size="1">第 {option.stage} 再临</Text>
+                </Flex>
+              </Select.Item>
+            ))}
+          </Select.Content>
+        </Select.Root>
+      </Box>
+
+      <Tooltip content={editable ? "移出队列" : "运行中不可删除"}>
+        <IconButton
+          variant="soft"
+          color="red"
+          disabled={!editable}
+          aria-label={`移出 ${entry.nameCn}`}
+          onClick={onRemove}
+        >
+          <TrashIcon />
+        </IconButton>
+      </Tooltip>
+    </Flex>
+  );
 }
 
 export function EnhancementPage({
@@ -278,6 +463,7 @@ export function EnhancementPage({
           targetLevel: naturalMaxForRarity(servant.rarity),
           twoExp: false,
           faceKey: null,
+          enabled: true,
         });
       }
       void persistQueue(next).catch((err) => setError(String(err)));
@@ -310,6 +496,32 @@ export function EnhancementPage({
       setStatus("idle");
     });
   }, [appendLog, onAutomationStart, onLogEntry, queue.length, running, server]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  const handleReorder = useCallback(
+    (activeId: string, overId: string) => {
+      const next = moveQueueEntry(queue, activeId, overId);
+      if (next === queue) return;
+      setQueue(next);
+      void persistQueue(next).catch((err) => setError(String(err)));
+    },
+    [persistQueue, queue],
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      handleReorder(String(active.id), String(over.id));
+    },
+    [handleReorder],
+  );
 
   const handleStop = useCallback(() => {
     invoke("stop_servant_enhancement_automation").catch((err) =>
@@ -404,128 +616,37 @@ export function EnhancementPage({
               </Text>
             </Flex>
           ) : (
-            <Flex direction="column" gap="2" mt="3">
-              {queue.map((entry) => {
-                const state = live[entry.id];
-                const entryStatus = state?.status ?? "pending";
-                const face = faceFor(entry);
-                const options = faceOptions(entry.variantKey);
-                const currentLevel = state?.currentLevel;
-                const maxLevel = state?.maxLevel;
-                return (
-                  <Flex
-                    key={entry.id || entry.variantKey}
-                    align="center"
-                    gap="3"
-                    className={`servant-enhancement-row ${
-                      entryStatus === "running" ? "running" : ""
-                    }`}
-                  >
-                    <Box className="servant-enhancement-face">
-                      {face ? (
-                        <img src={convertFileSrc(face.path)} alt="" />
-                      ) : (
-                        <Text size="1" color="gray">{entry.className.slice(0, 2)}</Text>
-                      )}
-                    </Box>
-
-                    <Box className="servant-enhancement-info">
-                      <Flex align="center" gap="2" wrap="wrap">
-                        <Text size="2" weight="medium">{entry.nameCn}</Text>
-                        <Badge color={statusColor(entryStatus)} variant="soft" size="1">
-                          {statusLabel(entryStatus)}
-                        </Badge>
-                      </Flex>
-                      <Text size="1" color="gray">
-                        {entry.className} / {entry.rarity}★
-                        {currentLevel != null
-                          ? ` · 当前 Lv.${currentLevel}${maxLevel != null ? `/${maxLevel}` : ""}`
-                          : ""}
-                      </Text>
-                      {state?.message && (
-                        <Text size="1" color={entryStatus === "failed" ? "red" : "gray"}>
-                          {state.message}
-                        </Text>
-                      )}
-                    </Box>
-
-                    <Box className="servant-enhancement-level">
-                      <Text size="1" color="gray">目标等级</Text>
-                      <TextField.Root
-                        type="number"
-                        min={1}
-                        max={120}
-                        value={draftLevels[entry.id] ?? String(entry.targetLevel)}
-                        disabled={running}
-                        onChange={(event) =>
-                          setDraftLevels((prev) => ({
-                            ...prev,
-                            [entry.id]: event.target.value,
-                          }))
-                        }
-                        onBlur={() => commitLevel(entry.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") event.currentTarget.blur();
-                        }}
-                      />
-                    </Box>
-
-                    <Flex direction="column" gap="1" className="servant-enhancement-toggle">
-                      <Text size="1" color="gray">2EXP</Text>
-                      <Switch
-                        checked={entry.twoExp}
-                        disabled={running}
-                        onCheckedChange={(checked) =>
-                          updateEntry(entry.id, { twoExp: checked })
-                        }
-                      />
-                    </Flex>
-
-                    <Box className="servant-enhancement-face-select">
-                      <Text size="1" color="gray">头像</Text>
-                      <Select.Root
-                        value={entry.faceKey ?? ALL_FACES}
-                        disabled={running || options.length === 0}
-                        onValueChange={(value) =>
-                          updateEntry(entry.id, {
-                            faceKey: value === ALL_FACES ? null : value,
-                          })
-                        }
-                      >
-                        <Select.Trigger variant="soft" />
-                        <Select.Content>
-                          <Select.Item value={ALL_FACES}>自动（全部）</Select.Item>
-                          {options.map((option) => (
-                            <Select.Item key={option.key} value={option.key}>
-                              <Flex align="center" gap="2">
-                                <img
-                                  className="servant-enhancement-face-option"
-                                  src={convertFileSrc(option.path)}
-                                  alt=""
-                                />
-                                <Text size="1">第 {option.stage} 再临</Text>
-                              </Flex>
-                            </Select.Item>
-                          ))}
-                        </Select.Content>
-                      </Select.Root>
-                    </Box>
-
-                    <Tooltip content={running ? "运行中不可删除" : "移出队列"}>
-                      <IconButton
-                        variant="soft"
-                        color="red"
-                        disabled={running}
-                        aria-label={`移出 ${entry.nameCn}`}
-                        onClick={() => handleRemove(entry.id)}
-                      >
-                        <TrashIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </Flex>
-                );
-              })}
-            </Flex>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={queue.map((entry) => entry.id || entry.variantKey)}
+                strategy={verticalListSortingStrategy}
+              >
+                <Flex direction="column" gap="2" mt="3">
+                  {queue.map((entry) => (
+                    <SortableEnhancementRow
+                      key={entry.id || entry.variantKey}
+                      entry={entry}
+                      state={live[entry.id]}
+                      status={live[entry.id]?.status ?? "pending"}
+                      facePath={faceFor(entry)?.path ?? null}
+                      faceOptions={faceOptions(entry.variantKey)}
+                      editable={!running}
+                      draftLevel={draftLevels[entry.id]}
+                      onDraftLevelChange={(value) =>
+                        setDraftLevels((prev) => ({ ...prev, [entry.id]: value }))
+                      }
+                      onCommitLevel={() => commitLevel(entry.id)}
+                      onUpdate={(patch) => updateEntry(entry.id, patch)}
+                      onRemove={() => handleRemove(entry.id)}
+                    />
+                  ))}
+                </Flex>
+              </SortableContext>
+            </DndContext>
           )}
         </Box>
 

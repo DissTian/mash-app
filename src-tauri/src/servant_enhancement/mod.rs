@@ -38,6 +38,14 @@ pub struct ServantEnhancementEntry {
     pub two_exp: bool,
     #[serde(default)]
     pub face_key: Option<String>,
+    /// Disabled entries stay in the queue (materials are known to be missing)
+    /// but the runner skips them for this run.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+pub(crate) fn default_true() -> bool {
+    true
 }
 
 /// Input accepted from the queue editor. The backend resolves servant metadata
@@ -54,6 +62,8 @@ pub struct ServantEnhancementEntryInput {
     pub two_exp: bool,
     #[serde(default)]
     pub face_key: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,6 +97,7 @@ pub struct ServantEnhancementEntryState {
     pub target_level: u32,
     pub two_exp: bool,
     pub face_key: Option<String>,
+    pub enabled: bool,
     pub status: EntryStatus,
     pub current_level: Option<u32>,
     pub max_level: Option<u32>,
@@ -105,6 +116,7 @@ impl ServantEnhancementEntryState {
             target_level: entry.target_level,
             two_exp: entry.two_exp,
             face_key: entry.face_key.clone(),
+            enabled: entry.enabled,
             status: EntryStatus::Pending,
             current_level: None,
             max_level: None,

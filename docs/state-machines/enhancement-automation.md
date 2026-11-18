@@ -67,6 +67,7 @@ stateDiagram-v2
 
 ### 从者选择与 2EXP
 
+- 队列条目可拖拽排序（运行中禁用拖动与编辑），每个条目带独立启用开关：停用的条目保留在队列里，启动时直接标记为「已禁用（本次跳过）」，不进目标列表。
 - 进入列表后先打开「筛选」，按目标的稀有度和职阶过滤（1920×1080 固定布局：稀有度行 y≈0.343，职阶行 y≈0.548，`决定` x≈0.86/y≈0.87），先点「回到初始设定」清空上次勾选，再勾选目标稀有度/职阶，把候选压到一页内，避免依赖不稳定的列表滚动；筛选后网格头像匹配阈值为 `0.60`，普通列表为 `0.85`。筛选未识别成功时回退到滚动列表，筛选请求错误正常上报。
 - 列表使用现有 `find_enhancement_servant_grid` 头像匹配。**国服跳过网格锚点检测**（`skipGrid`）：这套「从者强化」选人界面的卡片下半部盖着「等级&强化 / 达到最大」状态条，`text_servant_avatar_bottom_line` 锚线被遮住，实测默认阈值下 `anchors` 恒为 0，网格路径不可能产出结果；因此国服直接对列表区域搜索目标头像裁剪，不再白跑一次约 110 ms 的锚点扫描。日服保持网格路径不变。
 - 画面判定优先走模板探针（`probe_template`，~20-40 ms/次）：推荐素材选择标题、圣杯转临确认标题、强化确认标题、溢出提示标题、结果画面的「请点击游戏界面」、从者选择标题、「从者强化」标题、灵基再临标题、圣杯转临标题、强化按钮、从者强化入口、主页「通知」按优先级匹配；未命中才回退整屏 OCR。需要文本的判定（主界面从者名、`前往圣杯转临`/`前往灵基再临`、推荐对话框 `自动配置关`、灵基再临/圣杯转临的提示与结果标题）用 rec-only 文本条批量读取，不再整屏识别。
@@ -76,6 +77,7 @@ stateDiagram-v2
 - 关闭对话框与「确认已关闭」合并为一次等待：强化确认、强化结果各自用锚点（对话框标题 / 「请点击游戏界面」）轮询到消失即继续，不再「固定等待 + 再识别一次」。
 - 固定等待改为「画面稳定轮询」：每 25 ms 采样中心区域亮度，连续 3 次稳定即继续，超时取旧等待值；因此 250/600/700/1600 ms 这类等待只在画面确实持续变化时才等满。
 - 国服直接搜索区域只覆盖卡片网格 `(0.045, 0.22, 0.74, 0.78)`：不含顶部「持有从者 / 筛选 / 等级顺序」标题栏和右侧滚动条/所持栏位面板，同时包含最底部那一行只露出上半部分的卡片。该区域由调试页画面上的搜索框覆盖层标定，Rust 测试固定其边界。
+- **直接搜索阈值必须显式传给 sidecar**：`find_enhancement_servant_grid` 的 `directSearchThreshold` 缺省时 sidecar 会把直接搜索阈值抬到 `max(0.85, faceThreshold)`，于是任何更低的阈值（筛选后的 0.60、2EXP 的 0.72）都会被静默覆盖——调试页因为显式传了阈值能命中，实际流程却是 0.85 门槛。Rust 侧统一走 `search_servant_list`，把调用方阈值同时作为 `faceThreshold` 与 `directSearchThreshold` 传入。
 - 直接搜索使用当前分辨率对应的模板尺寸（`223 × 帧宽 / 2560`）、指定头像和 2EXP 裁剪；未显式提供直接搜索阈值时沿用至少 `0.85` 的下限，调试页可以下探。搜索采用「半分辨率粗搜 + 全分辨率局部精修」，精修分数落在阈值 ±0.02 内时再对整个区域做一次全分辨率复核，因此命中判定与全分辨率搜索一致。诊断记录 `matchMethod`、`directSearchAttempted`、`directSearchThreshold`、`gridSkipped`、`pyramid` 与阶段耗时（`frameMs` / `gridMs` / `templateMs` / `matchMs` / `directSearchMs` / `totalMs`）；Rust 日志区分网格/直接搜索并带失败原因。
 - 离线截图 `tests/test_data/screenshots/servant_select_cn_partial.png` 与独立头像模板覆盖 1920×1080 / 2560×1440、零锚点、底部半行、无目标、指定其他再临头像、列表边界和 2EXP 遮挡。
 - 每个条目可指定头像（`face_key`）。指定后只用该头像模板；不指定时才尝试该从者的全部头像。不同再临头像视为不同识别目标，不做跨头像回退。
@@ -94,10 +96,10 @@ stateDiagram-v2
 
 ### 队列与命令
 
-- 队列文件：`app_data_dir()/servant_enhancement_queue.json`，条目包含稳定 `id`、`variantKey`、目标等级、`twoExp`、`faceKey`。
+- 队列文件：`app_data_dir()/servant_enhancement_queue.json`，条目包含稳定 `id`、`variantKey`、目标等级、`twoExp`、`faceKey`、`enabled`（缺省 true）。整份队列通过 `save_servant_enhancement_queue` 一次性保存，拖拽排序与启用开关都走这条路径。
 - 命令：`get_servant_enhancement_queue`、`save_servant_enhancement_queue`、`start_servant_enhancement_automation`、`stop_servant_enhancement_automation`、`get_servant_enhancement_automation_status`、`list_servant_faces`。
 - 事件：`servant-enhancement-automation-status`，携带 `status`、当前画面、全部条目状态、当前条目 id 与等级。
-- 完成（达到目标等级）后从队列移除并进入「本次完成」；跳过/失败保留，下次运行自动重试。运行中锁定队列编辑。仅国服可启动，其他服务器显示警告并禁用开始。
+- 完成（达到目标等级）后从队列移除并进入「本次完成」；跳过/失败保留，下次运行自动重试。运行中锁定队列编辑与拖拽；停用条目不会被加载为执行目标，全部停用时启动直接报「从者强化队列中没有启用的从者」。仅国服可启动，其他服务器显示警告并禁用开始。
 - 整个队列正常结束后，从强化页逐级返回（返回强化菜单 → 关闭），把游戏留在主页；中途手动停止则保留当前画面。选择/强化期间取消统一将当前条目还原为待处理并清空当前条目标识，立即退出队列，不记为跳过，也不发「处理完成」。点击与滑动前检查取消标记。
 - 选择失败区分列表滑动上限、页面导航上限和连续未知画面上限；日志显示实际已完成的滑动次数，不再将任意退出都写成「已重试 60 次」。识别到已知画面后清零连续未知计数，最多执行 60 次列表滑动，最后一次滑动后仍可匹配成功。
 - 队列页测试位于 [src/features/enhancement/__tests__/EnhancementPage.test.tsx](../../src/features/enhancement/__tests__/EnhancementPage.test.tsx)，Rust 纯逻辑测试位于 [servant_enhancement/tests.rs](../../src-tauri/src/servant_enhancement/tests.rs)。

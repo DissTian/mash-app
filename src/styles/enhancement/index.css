@@ -26,7 +26,7 @@
 
 .servant-enhancement-row {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 96px 58px 132px 32px;
+  grid-template-columns: 24px 48px minmax(0, 1fr) 96px 58px 58px 132px 32px;
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
@@ -38,6 +38,34 @@
 .servant-enhancement-row.running {
   border-color: var(--blue-8);
   background: var(--blue-2);
+}
+
+.servant-enhancement-row[data-dragging="true"] {
+  opacity: 0.85;
+  border-color: var(--blue-9);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  z-index: 2;
+  position: relative;
+}
+
+.servant-enhancement-row.disabled {
+  border-style: dashed;
+  background: var(--gray-1);
+}
+
+.servant-enhancement-row.disabled .servant-enhancement-info,
+.servant-enhancement-row.disabled .servant-enhancement-face {
+  opacity: 0.55;
+}
+
+.servant-enhancement-drag {
+  cursor: grab;
+  touch-action: none;
+}
+
+.servant-enhancement-drag:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 
 .servant-enhancement-face {
@@ -106,7 +134,7 @@
 
 @media (max-width: 900px) {
   .servant-enhancement-row {
-    grid-template-columns: 44px minmax(0, 1fr) 88px;
+    grid-template-columns: 24px 44px minmax(0, 1fr) 88px;
   }
 
   .servant-enhancement-toggle,

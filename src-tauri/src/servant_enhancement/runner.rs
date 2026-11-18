@@ -860,6 +860,34 @@ impl ServantEnhancementRunner {
         Ok(true)
     }
 
+    /// One CN list search. `directSearchThreshold` must be forwarded: when it
+    /// is omitted the sidecar floors the direct search at 0.85, which silently
+    /// overrides every lower threshold below — exactly what made the filtered
+    /// (0.60) and 2EXP (0.72) searches miss in production while the debug tool
+    /// (which passes the threshold explicitly) matched.
+    fn search_servant_list(
+        &mut self,
+        paths: &[std::path::PathBuf],
+        template_crop: NormRect,
+        mask: Option<NormRect>,
+        threshold: f64,
+        template_size: Option<(u32, u32)>,
+    ) -> Result<crate::screen::FindEnhancementServantGridResult, crate::screen::CvError> {
+        self.sidecar().find_enhancement_servant_grid(
+            None,
+            paths,
+            SERVANT_LIST_REGION,
+            template_crop,
+            template_size,
+            threshold,
+            1.0,
+            mask,
+            Some(threshold),
+            false,
+            true,
+        )
+    }
+
     fn find_target_in_list(
         &mut self,
         target: &ServantEnhancementTarget,
@@ -878,18 +906,12 @@ impl ServantEnhancementRunner {
         let template_size = self.template_size;
         if target.two_exp {
             let corner_timer = self.trace_timer();
-            let corner = self.sidecar().find_enhancement_servant_grid(
-                None,
+            let corner = self.search_servant_list(
                 &paths,
-                SERVANT_LIST_REGION,
                 TWO_EXP_FACE_MATCH_CROP,
-                Some(template_size),
+                None,
                 threshold.max(0.72),
-                1.0,
-                None,
-                None,
-                false,
-                true,
+                Some(template_size),
             );
             if let Some(timer) = corner_timer {
                 self.trace_tool(
@@ -939,19 +961,12 @@ impl ServantEnhancementRunner {
 
         let timer = self.trace_timer();
         let result = self
-            .sidecar()
-            .find_enhancement_servant_grid(
-                None,
+            .search_servant_list(
                 &paths,
-                SERVANT_LIST_REGION,
                 SERVANT_FACE_MATCH_CROP,
-                Some(template_size),
+                None,
                 threshold,
-                1.0,
-                None,
-                None,
-                false,
-                true,
+                Some(template_size),
             )
             .map_err(|err| format!("头像匹配失败: {err}"));
         if let Some(timer) = timer {

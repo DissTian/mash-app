@@ -132,6 +132,7 @@ pub(crate) fn save_servant_enhancement_queue(
             target_level,
             two_exp: input.two_exp,
             face_key: input.face_key.filter(|key| !key.is_empty()),
+            enabled: input.enabled,
         });
     }
 
@@ -174,6 +175,9 @@ pub(crate) fn start_servant_enhancement_automation(
 
     let mut targets = Vec::with_capacity(entries.len());
     for entry in &entries {
+        if !entry.enabled {
+            continue;
+        }
         targets.push(load_servant_enhancement_target(
             &app,
             &entry.id,
@@ -182,6 +186,9 @@ pub(crate) fn start_servant_enhancement_automation(
             entry.two_exp,
             entry.face_key.as_deref(),
         )?);
+    }
+    if targets.is_empty() {
+        return Err("从者强化队列中没有启用的从者".into());
     }
 
     let automation_lease = coordinator.reserve(DeviceOperation::Automation(
@@ -199,8 +206,15 @@ pub(crate) fn start_servant_enhancement_automation(
     let entry_states = Arc::new(Mutex::new(
         entries
             .iter()
-            .map(ServantEnhancementEntryState::from_entry)
-            .collect(),
+            .map(|entry| {
+                let mut state = ServantEnhancementEntryState::from_entry(entry);
+                if !entry.enabled {
+                    state.status = EntryStatus::Skipped;
+                    state.message = "已禁用（本次跳过）".into();
+                }
+                state
+            })
+            .collect::<Vec<_>>(),
     ));
     let current_entry_id = Arc::new(Mutex::new(None));
     {

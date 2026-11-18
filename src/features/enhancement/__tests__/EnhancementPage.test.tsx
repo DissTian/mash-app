@@ -37,6 +37,7 @@ const ENTRY: ServantEnhancementQueueEntry = {
   targetLevel: 90,
   twoExp: false,
   faceKey: null,
+  enabled: true,
 };
 
 const IDLE: ServantEnhancementStatePayload = {
@@ -74,6 +75,7 @@ function entryState(
     targetLevel: ENTRY.targetLevel,
     twoExp: ENTRY.twoExp,
     faceKey: ENTRY.faceKey,
+    enabled: ENTRY.enabled,
     status: "pending",
     currentLevel: null,
     maxLevel: null,
@@ -132,6 +134,37 @@ describe("EnhancementPage", () => {
             targetLevel: 90,
             twoExp: false,
             faceKey: null,
+            enabled: true,
+          },
+        ],
+      });
+    });
+    expect(await screen.findByText("阿尔托莉雅·Caster")).toBeInTheDocument();
+  });
+
+  it("toggles a queue entry off without removing it", async () => {
+    mockCommands({
+      save_servant_enhancement_queue: [{ ...ENTRY, enabled: false }],
+    });
+    const user = userEvent.setup();
+    renderWithTheme(<EnhancementPage servants={SERVANTS} onBack={() => {}} />);
+
+    const toggle = await screen.findByRole("switch", {
+      name: "启用 阿尔托莉雅·Caster",
+    });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("save_servant_enhancement_queue", {
+        entries: [
+          {
+            id: "entry-1",
+            variantKey: "100100:1",
+            targetLevel: 90,
+            twoExp: false,
+            faceKey: null,
+            enabled: false,
           },
         ],
       });
