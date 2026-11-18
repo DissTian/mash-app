@@ -16,7 +16,7 @@
 
 | 功能 | 参考 |
 | --- | --- |
-| 自动战斗 | [状态机](state-machines/battle-automation.md)、[冠位战策略](grand-battle-auto-strategy.md) |
+| 自动战斗 | [状态机](state-machines/battle-automation.md)、[冠位战策略](grand-battle-auto-strategy.md)、[自动战斗方案](auto-battle.md) |
 | 从者强化 | [状态机与模板映射](state-machines/enhancement-automation.md) |
 | 礼装强化 | [状态机与丸子策略](state-machines/craft-essence-enhancement-automation.md) |
 | 友情点召唤 | [状态机](state-machines/friend-point-summon-automation.md) |

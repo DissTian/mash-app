@@ -14,12 +14,14 @@ interface HomePageProps {
   showEnhancement: boolean;
   showRankUpQuest: boolean;
   showServantEnhancement: boolean;
+  showAutoBattle: boolean;
   onSelectFigure: (id: number) => Promise<void>;
   onOpenTeam: () => void;
   onOpenSummon: () => void;
   onOpenCraftEssenceEnhancement: () => void;
   onOpenRankUpQuest: () => void;
   onOpenServantEnhancement: () => void;
+  onOpenAutoBattle: () => void;
   onOpenBench?: () => void;
 }
 
@@ -31,12 +33,14 @@ export function HomePage({
   showEnhancement,
   showRankUpQuest,
   showServantEnhancement,
+  showAutoBattle,
   onSelectFigure,
   onOpenTeam,
   onOpenSummon,
   onOpenCraftEssenceEnhancement,
   onOpenRankUpQuest,
   onOpenServantEnhancement,
+  onOpenAutoBattle,
   onOpenBench,
 }: HomePageProps) {
   const [battleMenuOpen, setBattleMenuOpen] = useState(false);
@@ -185,6 +189,9 @@ export function HomePage({
               <TaskCard appearance="battle" number="01" caption="PARTY" title="编队/开始" description="选择队伍并开始战斗" onClick={onOpenTeam} />
               {showRankUpQuest && (
                 <TaskCard appearance="enhance" number="02" caption="RANK UP" title="强化任务" description="进入强化任务" onClick={onOpenRankUpQuest} />
+              )}
+              {showAutoBattle && (
+                <TaskCard appearance="battle" number="03" caption="AUTO" title="自动战斗" description="配置自动战斗策略方案" onClick={onOpenAutoBattle} />
               )}
             </>
           ) : (

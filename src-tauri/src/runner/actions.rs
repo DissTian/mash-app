@@ -551,7 +551,7 @@ impl Runner {
         }
     }
 
-    fn probe_skill_use_dialog(
+    pub(crate) fn probe_skill_use_dialog(
         &mut self,
     ) -> AutomationResult<(SkillUseDialogProbe, Option<PathBuf>)> {
         if self.config.auto_capture_skill_use_probe {

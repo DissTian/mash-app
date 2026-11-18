@@ -405,6 +405,15 @@ pub struct Project {
     /// Persisted per-run use caps. Missing/null item limits mean unlimited.
     #[serde(default)]
     pub ap_recovery_limits: ApRecoveryLimits,
+    /// When `true`, this project hands the fight to the auto-battle system
+    /// once its manual turn configuration stops applying (turn beyond the
+    /// configured list, an unconfigured battle scene, or no commands at all).
+    #[serde(default)]
+    pub auto_battle_takeover: bool,
+    /// Referenced `AutoBattleProfile` id. `None` means the builtin basic
+    /// profile. A missing id at run start falls back to the builtin profile.
+    #[serde(default)]
+    pub auto_battle_profile_id: Option<String>,
 }
 
 /// User-defined, one-level grouping for projects. Project execution data stays

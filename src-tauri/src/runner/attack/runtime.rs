@@ -34,6 +34,12 @@ impl Runner {
     }
 
     pub(super) fn current_attack_requires_np_recognition(&self) -> bool {
+        if self.auto_takeover_for_current_state() {
+            return self
+                .auto_battle
+                .as_ref()
+                .is_some_and(|strategy| strategy.noble_phantasm.mode != NoblePhantasmUseMode::Off);
+        }
         if self.advanced_mode {
             return self
                 .advanced_scenes
@@ -241,6 +247,15 @@ impl Runner {
                 return Ok(());
             };
             self.handle_advanced_attack(cards, nps, party_ids, party_supports)?;
+            return Ok(());
+        }
+
+        if self.auto_takeover_for_current_state() {
+            let party_ids = self.build_party_ids();
+            let Some((cards, nps)) = self.read_attack_state(&party_ids, false, true)? else {
+                return Ok(());
+            };
+            self.pick_and_tap_auto(&cards, &nps)?;
             return Ok(());
         }
 
@@ -584,7 +599,12 @@ impl Runner {
                 self.emit("Attack", "指令卡尚未完全出现，等待卡面稳定后重试");
                 thread::sleep(ACTION_DELAY);
             };
-            self.emit("Attack", "未配置普通指令卡，跳过指令卡归属识别");
+            let message = if self.auto_takeover_for_current_state() {
+                "自动战斗：跳过指令卡归属识别，按卡面颜色选卡"
+            } else {
+                "未配置普通指令卡，跳过指令卡归属识别"
+            };
+            self.emit("Attack", message);
             cards
         };
         if recognize_critical_chance {

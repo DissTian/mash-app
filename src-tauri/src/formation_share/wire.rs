@@ -159,6 +159,10 @@ pub(super) fn portable_entry(input: &Value) -> Result<Value, String> {
         "repeatCount",
         "apRecoveryItems",
         "apRecoveryLimits",
+        // Auto-battle profiles are app-global and shared separately; a
+        // formation code never carries the takeover switch or profile id.
+        "autoBattleTakeover",
+        "autoBattleProfileId",
         "server",
         "sourceServer",
         "region",

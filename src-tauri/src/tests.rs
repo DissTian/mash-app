@@ -595,6 +595,8 @@ fn test_project(id: &str, name: &str, advanced_mode: bool) -> Project {
         repeat_count: None,
         ap_recovery_items: Vec::new(),
         ap_recovery_limits: Default::default(),
+        auto_battle_takeover: false,
+        auto_battle_profile_id: None,
     }
 }
 
@@ -1550,6 +1552,8 @@ fn normalize_project_migrates_legacy_repeat_flag_to_infinite_mode() {
         repeat_count: Some(9),
         ap_recovery_items: Vec::new(),
         ap_recovery_limits: Default::default(),
+        auto_battle_takeover: false,
+        auto_battle_profile_id: None,
     });
 
     assert_eq!(project.repeat_mission, true);

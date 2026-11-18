@@ -325,6 +325,15 @@ pub struct RunConfig {
     /// Maximum uses per recovery item for this run. `None` means unlimited.
     #[serde(default)]
     pub ap_recovery_limits: ApRecoveryLimits,
+    /// Hand the fight to the auto-battle system once manual turn
+    /// configuration stops applying. The runner resolves
+    /// `auto_battle_profile_id` into a strategy snapshot at start.
+    #[serde(default)]
+    pub auto_battle_takeover: bool,
+    /// Referenced `AutoBattleProfile` id. `None` falls back to the builtin
+    /// basic profile.
+    #[serde(default)]
+    pub auto_battle_profile_id: Option<String>,
 }
 
 fn default_support_skill_level_mins() -> [Option<u32>; 3] {

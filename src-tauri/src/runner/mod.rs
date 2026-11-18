@@ -4,6 +4,7 @@
 use crate::automation_error::{AutomationResult, AutomationResultExt};
 mod actions;
 mod ap_recovery;
+mod auto_battle;
 mod attack;
 mod config;
 mod coords;
@@ -47,14 +48,17 @@ use crate::screen::{
 };
 use crate::touch::{self, TouchBackend};
 #[cfg(test)]
+use crate::SkillSlotRef;
+#[cfg(test)]
 use crate::GrandCardRuleSlotConfig;
 use crate::{
     default_grand_chain_priority, load_servant_metadata_for_variant, servant_np_card, Action,
     AdvancedBattleScene, AdvancedCardStrategy, AdvancedCommandCardCondition, AdvancedOutputType,
-    AdvancedRule, AttackCard, AttackMemberPriorityItem, AttackMode, BattleScene, BattleTurn,
-    CriticalAttackStrategy, CriticalChainType, GrandCardRuleConfig, GrandCardStrategy,
-    GrandChainPriorityItem, GrandClass, GrandClassDefinition, GrandRoleDefinition,
-    GrandServantConfig, LancerGrandRole, ServantMetadata, Server,
+    AdvancedRule, AttackCard, AttackMemberPriorityItem, AttackMode, AutoBattleStrategy, BattleScene,
+    BattleTurn, CommandCardColor, CommandCardMode, CommandCardStrategy, CriticalAttackStrategy, CriticalChainType,
+    EnemyTargetMode, FailurePolicy, GrandCardRuleConfig, GrandCardStrategy, GrandChainPriorityItem, GrandClass,
+    GrandClassDefinition, GrandRoleDefinition, GrandServantConfig, LancerGrandRole,
+    NoblePhantasmUseMode, ServantMetadata, Server, SkillOrder, SkillTargetMode, SkillUseMode,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -202,6 +206,9 @@ pub struct Runner {
     battle_result_loot_handled: bool,
     battle_result_friend_request_handled: bool,
     battle_result_continue_handled: bool,
+    /// Resolved auto-battle strategy snapshot. `None` means the project did
+    /// not enable takeover; `Some` drives the normal-mode fallback turns.
+    auto_battle: Option<AutoBattleStrategy>,
     /// Pluggable touch-injection backend (see `touch::TouchBackend`).
     /// Chooses scrcpy when available, otherwise ADB Input.
     /// The runner just calls `tap` / `swipe` /
@@ -233,6 +240,7 @@ impl Runner {
         team_verification: Arc<Mutex<TeamVerificationControl>>,
         team_check_targets: Vec<TeamCheckTarget>,
         mystic_code_name: Option<String>,
+        auto_battle: Option<AutoBattleStrategy>,
     ) -> Self {
         let (screen_w, screen_h) = screen_size.unwrap_or((DEFAULT_W, DEFAULT_H));
         let (frame_w, frame_h) = frame_size.unwrap_or((DEFAULT_FRAME_W, DEFAULT_FRAME_H));
@@ -288,6 +296,7 @@ impl Runner {
             team_verification,
             team_check_targets,
             mystic_code_name,
+            auto_battle,
         }
     }
 }

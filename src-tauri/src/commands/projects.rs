@@ -13,7 +13,7 @@ pub(crate) struct ProjectStoreLock(Mutex<()>);
 
 impl ProjectStoreLock {
     /// The caller holds the guard for the complete storage operation.
-    fn lock(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
+    pub(crate) fn lock(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
         self.0.lock().map_err(|error| error.to_string())
     }
 }
@@ -135,6 +135,8 @@ pub(crate) fn new_project(name: String, advanced_mode: bool, grand_class: GrandC
         repeat_count: None,
         ap_recovery_items: Vec::new(),
         ap_recovery_limits: Default::default(),
+        auto_battle_takeover: false,
+        auto_battle_profile_id: None,
     }
 }
 

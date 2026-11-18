@@ -1,0 +1,145 @@
+/* Auto-battle strategy profiles: list on the left, strategy editor on the right. */
+
+.auto-battle-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.auto-battle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auto-battle-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  color: var(--gray-12);
+  background: var(--gray-2);
+  border: 1px solid var(--gray-5);
+  border-radius: var(--radius-3);
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.auto-battle-profile:hover {
+  background: var(--gray-3);
+}
+
+.auto-battle-profile[aria-pressed="true"] {
+  border-color: var(--blue-8);
+  background: var(--blue-2);
+}
+
+.auto-battle-profile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.auto-battle-profile-head strong {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.auto-battle-profile small {
+  color: var(--gray-10);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.auto-battle-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  color: var(--blue-11);
+  background: var(--blue-4);
+  border-radius: var(--radius-2);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+}
+
+.auto-battle-detail {
+  min-width: 0;
+}
+
+.auto-battle-title-fields {
+  flex: 1;
+  min-width: 220px;
+}
+
+.auto-battle-editor {
+  min-width: 0;
+}
+
+.auto-battle-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  background: var(--gray-1);
+  border: 1px solid var(--gray-5);
+  border-radius: var(--radius-3);
+}
+
+.auto-battle-row {
+  min-width: 0;
+}
+
+.auto-battle-row-copy {
+  flex: 1;
+  min-width: 200px;
+}
+
+.auto-battle-skill-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--gray-2);
+  border-radius: var(--radius-2);
+}
+
+.auto-battle-skill-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.auto-battle-skill-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.auto-battle-color-order {
+  align-items: center;
+}
+
+.auto-battle-footer {
+  padding-top: 4px;
+}
+
+@media (max-width: 900px) {
+  .auto-battle-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.auto-battle-takeover {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: var(--gray-2);
+  border: 1px solid var(--gray-5);
+  border-radius: var(--radius-3);
+}

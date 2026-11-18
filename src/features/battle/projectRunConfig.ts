@@ -126,5 +126,7 @@ export function buildProjectRunConfig(
     fiveStarCeDropTargetCount: stopOnFiveStarCeDrop
       ? fiveStarCeDropTargetCount
       : DEFAULT_FIVE_STAR_CE_DROP_TARGET_COUNT,
+    autoBattleTakeover: project.autoBattleTakeover === true,
+    autoBattleProfileId: project.autoBattleProfileId ?? null,
   };
 }

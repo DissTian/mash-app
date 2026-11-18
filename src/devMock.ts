@@ -3,6 +3,7 @@ import { createInitialProjectSlots } from "./features/team/projectSlots";
 import type { AdvancedBattleScene, BattleScene } from "./types/command";
 import type { CraftEssence } from "./types/craftEssence";
 import type { Project, ProjectCatalog } from "./types/project";
+import type { AutoBattleProfile, AutoBattleStrategy } from "./types/autoBattle";
 import type { Servant } from "./types/servant";
 import type { Server } from "./types/server";
 import type { TouchControlMode } from "./types/deviceControl";
@@ -186,6 +187,29 @@ const battleScenesByProject = new Map<string, BattleScene[]>([
 
 const advancedBattleScenesByProject = new Map<string, AdvancedBattleScene[]>();
 
+function defaultAutoBattleStrategy(): AutoBattleStrategy {
+  return {
+    skill: { mode: "readyOnly", selected: [], includeMysticCode: false, order: "servantMajor" },
+    skillTarget: { mode: "ownerSlot", selectedSlot: null },
+    noblePhantasm: { mode: "allReady", maxCount: 3 },
+    commandCard: { mode: "sameColor", colorOrder: ["buster", "arts", "quick"] },
+    enemyTarget: { mode: "default", selected: null },
+    failure: "skipStep",
+  };
+}
+
+const builtinAutoBattleProfile: AutoBattleProfile = {
+  id: "builtin-basic",
+  name: "基础方案",
+  description: "技能只放冷却好的，宝具就绪即用，指令卡优先三同色。",
+  builtin: true,
+  strategy: defaultAutoBattleStrategy(),
+  updatedAt: 0,
+};
+
+const autoBattleProfiles: AutoBattleProfile[] = [builtinAutoBattleProfile];
+let devAutoBattleProfileSeq = 0;
+
 function clone<T>(value: T): T {
   return structuredClone(value);
 }
@@ -320,6 +344,56 @@ async function invokeLegacyDevMock<T>(cmd: string, args: InvokeArgs = {}): Promi
       return null as T;
     case "list_projects":
       return clone(projects) as T;
+    case "list_auto_battle_profiles":
+      return clone(autoBattleProfiles) as T;
+    case "create_auto_battle_profile": {
+      const name = String(args.name ?? "").trim();
+      if (!name) throw new Error("自动战斗方案名称不能为空");
+      devAutoBattleProfileSeq += 1;
+      const profile: AutoBattleProfile = {
+        id: `dev-auto-battle-${devAutoBattleProfileSeq}`,
+        name,
+        description: "",
+        builtin: false,
+        strategy: defaultAutoBattleStrategy(),
+        updatedAt: Date.now(),
+      };
+      autoBattleProfiles.push(profile);
+      return clone(profile) as T;
+    }
+    case "duplicate_auto_battle_profile": {
+      const source = autoBattleProfiles.find((profile) => profile.id === args.sourceId);
+      if (!source) throw new Error("自动战斗方案不存在");
+      devAutoBattleProfileSeq += 1;
+      const copy: AutoBattleProfile = {
+        ...clone(source),
+        id: `dev-auto-battle-${devAutoBattleProfileSeq}`,
+        name: String(args.name ?? `${source.name} 副本`),
+        builtin: false,
+        updatedAt: Date.now(),
+      };
+      autoBattleProfiles.push(copy);
+      return clone(copy) as T;
+    }
+    case "save_auto_battle_profile": {
+      const profile = clone(args.profile as AutoBattleProfile);
+      const index = autoBattleProfiles.findIndex((item) => item.id === profile.id);
+      if (index >= 0) autoBattleProfiles[index] = profile;
+      else autoBattleProfiles.push(profile);
+      return clone(profile) as T;
+    }
+    case "delete_auto_battle_profile": {
+      if (args.id === builtinAutoBattleProfile.id) throw new Error("基础方案不能删除");
+      const index = autoBattleProfiles.findIndex((profile) => profile.id === args.id);
+      if (index >= 0) autoBattleProfiles.splice(index, 1);
+      return undefined as T;
+    }
+    case "reset_auto_battle_profile": {
+      const index = autoBattleProfiles.findIndex((profile) => profile.id === args.id);
+      const reset = clone(builtinAutoBattleProfile);
+      if (index >= 0) autoBattleProfiles[index] = reset;
+      return clone(reset) as T;
+    }
     case "get_project_catalog":
       return clone(projectCatalog) as T;
     case "create_project_group": {

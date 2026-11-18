@@ -5,6 +5,7 @@ import { AdvancedCommandEditor } from "../advanced/AdvancedCommandEditor";
 import { CommandWorkspace, type CommandStep } from "./CommandWorkspace";
 import { useCommandDocument } from "./useCommandDocument";
 import { BattleSceneBlock } from "./BattleSceneBlock";
+import { AutoBattleTakeoverPanel } from "./AutoBattleTakeoverPanel";
 import { preparationSkillUsageBeforeTurn } from "./preparationSkillUsage";
 import {
   deriveTurnPartyMembers,
@@ -34,6 +35,9 @@ interface CommandEditorProps {
   grandCardStrategy?: GrandCardStrategy;
   grandCardPriorityEnabled?: boolean;
   turnAttackModesEnabled?: boolean;
+  autoBattleTakeover?: boolean;
+  autoBattleProfileId?: string | null;
+  onAutoBattleChange?: (enabled: boolean, profileId: string | null) => Promise<void>;
   onGrandServantsChange?: (grandServants: GrandServantConfig[]) => void;
   onGrandCardStrategyChange?: (strategy: GrandCardStrategy) => void;
 }
@@ -54,6 +58,9 @@ export function CommandEditor({
   grandCardStrategy,
   grandCardPriorityEnabled = false,
   turnAttackModesEnabled = false,
+  autoBattleTakeover = false,
+  autoBattleProfileId = null,
+  onAutoBattleChange,
   onGrandServantsChange,
   onGrandCardStrategyChange,
 }: CommandEditorProps) {
@@ -102,6 +109,14 @@ export function CommandEditor({
     onAddTurn={() => void editor.mutate({ type: "addTurn" })} onDeleteTurn={() => void editor.mutate({ type: "deleteTurn" })}
     configuredWave={activeScene.turns.some(configured)} configuredTurn={configured(activeTurn)}
   >
+    {onAutoBattleChange && (
+      <AutoBattleTakeoverPanel
+        enabled={autoBattleTakeover}
+        profileId={autoBattleProfileId}
+        disabled={editor.busy}
+        onChange={onAutoBattleChange}
+      />
+    )}
     <BattleSceneBlock key={`${activeScene.id}:${activeTurn.id}:${step}`} scene={activeTurn}
       previousSkillUsage={skillEditorLayout === "simple" ? preparationSkillUsageBeforeTurn(initialPartyMembers, scenes, activeIndex, activeTurnIndex) : undefined}
       partyServants={partyMembersToServants(activePartyMembers)} partyMembers={activePartyMembers}

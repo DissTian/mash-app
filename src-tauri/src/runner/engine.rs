@@ -437,7 +437,25 @@ impl Runner {
                 self.battle.current_scene_index,
                 self.battle.current_turn_index,
             );
-            if let Some((turn_cfg, over_configured_turns)) = normal_turn_for_current_state(
+            let auto_takeover = self.auto_takeover_for_current_state();
+            if auto_takeover {
+                if self.battle.auto_skills_turn_key != Some(turn_key) {
+                    self.emit(
+                        "Battle",
+                        &format!(
+                            "自动战斗接管：Battle {} Turn {}",
+                            self.battle.current_scene_index + 1,
+                            self.battle.current_turn_index + 1,
+                        ),
+                    );
+                    if !self.execute_auto_skills()? {
+                        return Ok(());
+                    }
+                    self.battle.auto_skills_turn_key = Some(turn_key);
+                } else {
+                    self.emit("Battle", "自动战斗：本回合技能已完成，直接攻击");
+                }
+            } else if let Some((turn_cfg, over_configured_turns)) = normal_turn_for_current_state(
                 &self.scenes,
                 self.battle.current_scene_index,
                 self.battle.current_turn_index,
@@ -488,7 +506,12 @@ impl Runner {
         }
 
         if !self.advanced_mode {
-            if let Some((turn_cfg, over_configured_turns)) = normal_turn_for_current_state(
+            if self.auto_takeover_for_current_state() {
+                let target = self.auto_enemy_target();
+                if target.is_some() {
+                    self.select_enemy_target(target.as_deref())?;
+                }
+            } else if let Some((turn_cfg, over_configured_turns)) = normal_turn_for_current_state(
                 &self.scenes,
                 self.battle.current_scene_index,
                 self.battle.current_turn_index,

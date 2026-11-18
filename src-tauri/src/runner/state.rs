@@ -40,6 +40,9 @@ pub(crate) struct BattleState {
     /// Normal-mode turn config that has already had preparation actions
     /// executed. Advanced mode continues to use `executed_scene_index`.
     pub(crate) executed_turn_key: Option<(usize, usize)>,
+    /// `(scene, turn)` that already had auto-battle skills executed, so a
+    /// polling loop never taps the same skill set twice in one turn.
+    pub(crate) auto_skills_turn_key: Option<(usize, usize)>,
     /// Whether we used the scene config (vs fallback) — drives card selection
     pub(crate) scene_config_used: bool,
     /// Consecutive command-card owner recognition failures across the current
@@ -74,6 +77,7 @@ impl BattleState {
             last_screen_scene: None,
             executed_scene_index: None,
             executed_turn_key: None,
+            auto_skills_turn_key: None,
             scene_config_used: false,
             command_card_owner_failure_count: 0,
             command_card_owner_fallback_to_full_party: false,

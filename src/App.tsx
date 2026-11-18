@@ -21,6 +21,7 @@ import { EnhancementPage } from "./features/enhancement/EnhancementPage";
 import { CraftEssenceEnhancementPage } from "./features/craft-essence-enhancement/CraftEssenceEnhancementPage";
 import { FriendPointSummonPage } from "./features/friend-point-summon/FriendPointSummonPage";
 import { RankUpQuestPage } from "./features/rank-up-quest/RankUpQuestPage";
+import { AutoBattlePage } from "./features/auto-battle/AutoBattlePage";
 import { HomePage } from "./features/home/HomePage";
 import { DebugPage } from "./features/debug/DebugPage";
 import { BenchPage } from "./features/bench/BenchPage";
@@ -87,6 +88,7 @@ type View =
   | "craftEssenceEnhancement"
   | "friendPointSummon"
   | "rankUpQuest"
+  | "autoBattle"
   | "packetCapture"
   | "debug"
   | "bench";
@@ -994,6 +996,11 @@ function App({
     setView("rankUpQuest");
   }, []);
 
+  const handleOpenAutoBattle = useCallback(() => {
+    if (!featureToggles.autoBattle) return;
+    setView("autoBattle");
+  }, []);
+
   const handleOpenServantEnhancement = useCallback(() => {
     if (!featureToggles.servantEnhancement) return;
     setView("enhancement");
@@ -1098,14 +1105,18 @@ function App({
               showEnhancement={featureToggles.craftEssenceEnhancement}
               showRankUpQuest={featureToggles.rankUpQuest}
               showServantEnhancement={featureToggles.servantEnhancement}
+              showAutoBattle={featureToggles.autoBattle}
               onSelectFigure={handleSelectHomeFigure}
               onOpenTeam={handleBackToConfig}
               onOpenSummon={handleOpenFriendPointSummon}
               onOpenCraftEssenceEnhancement={handleOpenCraftEssenceEnhancement}
               onOpenRankUpQuest={handleOpenRankUpQuest}
               onOpenServantEnhancement={handleOpenServantEnhancement}
+              onOpenAutoBattle={handleOpenAutoBattle}
               onOpenBench={featureToggles.bench ? handleOpenBench : undefined}
             />
+          ) : view === "autoBattle" && featureToggles.autoBattle ? (
+            <AutoBattlePage onBack={handleOpenHome} />
           ) : view === "battle" ? (
             <BattlePage
               projects={projects}
@@ -1248,6 +1259,16 @@ function App({
                     grandCardStrategy={activeProject?.grandCardStrategy}
                     grandCardPriorityEnabled
                     turnAttackModesEnabled={featureToggles.turnAttackModes}
+                    autoBattleTakeover={activeProject?.autoBattleTakeover === true}
+                    autoBattleProfileId={activeProject?.autoBattleProfileId ?? null}
+                    onAutoBattleChange={(takeover, profileId) => {
+                      if (!activeProject) return Promise.resolve();
+                      return handleUpdateProject({
+                        ...activeProject,
+                        autoBattleTakeover: takeover,
+                        autoBattleProfileId: profileId,
+                      });
+                    }}
                     onGrandServantsChange={(grandServants) => {
                       if (!activeProject) return;
                       return handleUpdateProject({ ...activeProject, grandServants });

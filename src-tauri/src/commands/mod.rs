@@ -16,6 +16,7 @@ use zip::ZipArchive;
 
 pub(crate) mod adb;
 pub(crate) mod assets;
+pub(crate) mod auto_battle;
 pub(crate) mod automation;
 pub(crate) mod bench;
 pub(crate) mod catalog;

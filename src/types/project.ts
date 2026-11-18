@@ -180,6 +180,17 @@ export interface Project {
   apRecoveryItems?: BattleApRecoveryItem[];
   /** Per-item cap for one automation run. `null`/missing means unlimited. */
   apRecoveryLimits?: Partial<Record<BattleApRecoveryItem, number | null>>;
+  /**
+   * Hand the fight to the auto-battle system once this project's manual
+   * commands stop applying (turn beyond the configured list, an unconfigured
+   * battle scene, or no commands at all).
+   */
+  autoBattleTakeover?: boolean;
+  /**
+   * Auto-battle profile this project references. Missing/null means the
+   * builtin basic profile; a dangling id falls back to it at run start.
+   */
+  autoBattleProfileId?: string | null;
 }
 
 export interface ProjectGroup {

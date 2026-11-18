@@ -21,6 +21,7 @@ describe("feature toggles", () => {
       turnAttackModes: true,
       settingsDebug: true,
       autoFriendRequest: false,
+      autoBattle: true,
       tiltedStarOrbitsBackground: true,
     });
   });
@@ -37,6 +38,7 @@ describe("feature toggles", () => {
       turnAttackModes: true,
       settingsDebug: false,
       autoFriendRequest: false,
+      autoBattle: true,
       tiltedStarOrbitsBackground: true,
     });
   });
@@ -66,6 +68,7 @@ describe("feature toggles", () => {
       turnAttackModes: true,
       settingsDebug: false,
       autoFriendRequest: true,
+      autoBattle: true,
       tiltedStarOrbitsBackground: true,
     });
   });

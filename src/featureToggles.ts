@@ -10,6 +10,7 @@ interface FeatureToggleEnv {
   VITE_FEATURE_TURN_ATTACK_MODES?: string;
   VITE_FEATURE_AUTO_FRIEND_REQUEST?: string;
   VITE_FEATURE_TILTED_STAR_ORBITS_BACKGROUND?: string;
+  VITE_FEATURE_AUTO_BATTLE?: string;
 }
 
 export interface FeatureToggles {
@@ -24,6 +25,7 @@ export interface FeatureToggles {
   settingsDebug: boolean;
   autoFriendRequest: boolean;
   tiltedStarOrbitsBackground: boolean;
+  autoBattle: boolean;
 }
 
 function envFlag(value: string | undefined, fallback: boolean): boolean {
@@ -54,6 +56,7 @@ export function createFeatureToggles(env: FeatureToggleEnv): FeatureToggles {
     settingsDebug: env.DEV,
     autoFriendRequest: envFlag(env.VITE_FEATURE_AUTO_FRIEND_REQUEST, false),
     tiltedStarOrbitsBackground: envFlag(env.VITE_FEATURE_TILTED_STAR_ORBITS_BACKGROUND, true),
+    autoBattle: envFlag(env.VITE_FEATURE_AUTO_BATTLE, true),
   };
 }
 

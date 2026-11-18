@@ -276,5 +276,8 @@ impl BattleScene {
 mod advanced;
 pub use advanced::*;
 
+mod auto_battle;
+pub use auto_battle::*;
+
 mod project;
 pub use project::*;

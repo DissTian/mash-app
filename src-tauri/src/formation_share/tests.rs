@@ -257,6 +257,8 @@ fn local_support_class_and_run_preferences_never_change_the_shared_code() {
         input["project"]["repeatCount"] = json!(99);
         input["project"]["apRecoveryItems"] = json!([]);
         input["project"]["apRecoveryLimits"] = json!({"gold": 10});
+        input["project"]["autoBattleTakeover"] = json!(true);
+        input["project"]["autoBattleProfileId"] = json!("user-profile-1");
         assert_eq!(encode(&input).unwrap(), expected);
     }
     let compact = envelope(&expected);

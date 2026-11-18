@@ -28,12 +28,14 @@ function renderHome(overrides: Partial<React.ComponentProps<typeof HomePage>> = 
       showEnhancement
       showRankUpQuest
       showServantEnhancement
+      showAutoBattle
       onSelectFigure={onSelectFigure}
       onOpenTeam={vi.fn()}
       onOpenSummon={vi.fn()}
       onOpenCraftEssenceEnhancement={vi.fn()}
       onOpenRankUpQuest={vi.fn()}
       onOpenServantEnhancement={vi.fn()}
+      onOpenAutoBattle={vi.fn()}
       {...overrides}
     />,
   );
@@ -47,12 +49,14 @@ describe("HomePage", () => {
     const onOpenCraftEssenceEnhancement = vi.fn();
     const onOpenRankUpQuest = vi.fn();
     const onOpenServantEnhancement = vi.fn();
+    const onOpenAutoBattle = vi.fn();
     renderHome({
       onOpenTeam,
       onOpenSummon,
       onOpenCraftEssenceEnhancement,
       onOpenRankUpQuest,
       onOpenServantEnhancement,
+      onOpenAutoBattle,
     });
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "召唤" }));
@@ -66,6 +70,8 @@ describe("HomePage", () => {
     expect(onOpenTeam).toHaveBeenCalledOnce();
     await user.click(screen.getByRole("button", { name: "强化任务" }));
     expect(onOpenRankUpQuest).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "自动战斗" }));
+    expect(onOpenAutoBattle).toHaveBeenCalledOnce();
   });
 
   it("opens the benchmark page from the top-right test button", async () => {
@@ -86,6 +92,7 @@ describe("HomePage", () => {
       showEnhancement: false,
       showRankUpQuest: false,
       showServantEnhancement: false,
+      showAutoBattle: false,
     });
     expect(screen.queryByRole("button", { name: "召唤" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "强化" })).not.toBeInTheDocument();
@@ -93,6 +100,7 @@ describe("HomePage", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "战斗" }));
     expect(screen.getByRole("button", { name: "编队/开始" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "强化任务" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "自动战斗" })).not.toBeInTheDocument();
   });
 
   it("returns from the battle menu with an icon-only heading button", async () => {

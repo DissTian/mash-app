@@ -303,6 +303,12 @@ fn start_automation_with_config(
         strategy.normalize_servants(&mut config.grand_servants);
         strategy.validate_servants(&config.grand_servants)?;
     }
+    let auto_battle = crate::commands::auto_battle::resolve_auto_battle_strategy(
+        app,
+        config.auto_battle_takeover,
+        config.auto_battle_profile_id.as_deref(),
+        advanced_mode,
+    )?;
     let scenes = if advanced_mode {
         Vec::new()
     } else {
@@ -469,6 +475,7 @@ fn start_automation_with_config(
             team_verification,
             team_check_targets,
             mystic_code_name,
+            auto_battle,
         );
         runner.run();
     });

@@ -724,11 +724,13 @@ pub(crate) fn rect_center(r: &NormRect) -> Point {
 }
 
 mod advanced_runtime;
+mod auto;
 mod conditions;
 mod critical;
 mod noble_phantasm;
 mod runtime;
 mod selection_runtime;
+pub(crate) use auto::*;
 pub(crate) use conditions::*;
 pub(crate) use critical::*;
 pub(crate) use noble_phantasm::*;
