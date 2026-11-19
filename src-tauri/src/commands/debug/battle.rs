@@ -277,6 +277,175 @@ pub fn debug_find_skill_slots(
         .map_err(|error| format!("invalid find_skill_slots response: {error}"))
 }
 
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugSkillCooldownSlot {
+    pub index: usize,
+    pub region: NormRect,
+    pub text: String,
+    /// True only when the recognized text is entirely digits. A stray letter
+    /// such as ``J`` must not count as a cooldown number.
+    pub numeric: bool,
+    pub cooling: bool,
+    pub elapsed_ms: f64,
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugSkillCooldownsResult {
+    pub section: String,
+    pub mode: String,
+    pub corner_dx: f64,
+    pub corner_dy: f64,
+    pub corner_w: f64,
+    pub corner_h: f64,
+    pub scale: f64,
+    pub min_confidence: f64,
+    pub elapsed_ms: f64,
+    pub slots: Vec<DebugSkillCooldownSlot>,
+}
+
+fn cooldown_text_is_numeric(text: &str) -> bool {
+    let trimmed = text.trim();
+    !trimmed.is_empty() && trimmed.chars().all(|character| character.is_numeric())
+}
+
+/// OCR each front-line / mystic-code skill button's bottom-right corner and
+/// report whether a cooldown number is present. Read-only CV tool with tunable
+/// crop geometry, a fast recognition-only mode, and timing information.
+#[tauri::command]
+pub fn debug_find_skill_cooldowns(
+    app: tauri::AppHandle,
+    section: String,
+    mode: String,
+    corner_dx: f64,
+    corner_dy: f64,
+    corner_w: f64,
+    corner_h: f64,
+    scale: f64,
+    min_confidence: f64,
+    server_state: tauri::State<'_, Mutex<Server>>,
+    debug_state: tauri::State<'_, DebugSidecar>,
+    handle_state: tauri::State<'_, Mutex<RunnerHandle>>,
+    enhancement_handle_state: tauri::State<'_, Mutex<EnhancementRunnerHandle>>,
+    ce_enhancement_handle_state: tauri::State<'_, Mutex<CraftEssenceEnhancementRunnerHandle>>,
+    friend_point_summon_handle_state: tauri::State<'_, Mutex<FriendPointSummonRunnerHandle>>,
+) -> Result<DebugSkillCooldownsResult, String> {
+    require_automation_idle(
+        &handle_state,
+        &enhancement_handle_state,
+        &ce_enhancement_handle_state,
+        &friend_point_summon_handle_state,
+    )?;
+
+    let image_path = debug_image_path(&app);
+    if !image_path.exists() {
+        return Err("尚未截取画面，请先点击 截取画面".into());
+    }
+
+    ensure_debug_sidecar(&app, &debug_state, current_server(&server_state))?;
+
+    let points: Vec<Point> = if section == "equipment" {
+        crate::runner::EQUIPMENT_SKILLS.to_vec()
+    } else {
+        crate::runner::SERVANT_SKILLS
+            .iter()
+            .flatten()
+            .copied()
+            .collect()
+    };
+
+    let corner_regions: Vec<NormRect> = points
+        .iter()
+        .map(|point| {
+            let width = corner_w.clamp(0.001, 0.2);
+            let height = corner_h.clamp(0.001, 0.2);
+            let left = (point.x + corner_dx).clamp(0.0, (1.0 - width).max(0.0));
+            let top = (point.y + corner_dy).clamp(0.0, (1.0 - height).max(0.0));
+            NormRect {
+                x: left,
+                y: top,
+                w: width,
+                h: height,
+            }
+        })
+        .collect();
+
+    let mut guard = debug_state.0.lock().unwrap();
+    let client = guard
+        .as_mut()
+        .ok_or_else(|| "debug sidecar not initialized".to_string())?;
+
+    let started = Instant::now();
+    let mut slots = Vec::with_capacity(points.len());
+
+    if mode == "rec" {
+        // Recognition-only batch: one sidecar round trip for all crops.
+        let texts = client
+            .recognize_strips(Some(&image_path), &corner_regions)
+            .map_err(|error| format!("纯识别失败: {error}"))?;
+        let total_ms = started.elapsed().as_secs_f64() * 1000.0;
+        for (index, region) in corner_regions.into_iter().enumerate() {
+            let text = texts
+                .get(index)
+                .map(|text| text.trim().to_string())
+                .unwrap_or_default();
+            let numeric = cooldown_text_is_numeric(&text);
+            slots.push(DebugSkillCooldownSlot {
+                index,
+                region,
+                text,
+                numeric,
+                cooling: numeric,
+                elapsed_ms: total_ms / points.len().max(1) as f64,
+            });
+        }
+    } else {
+        for (index, region) in corner_regions.into_iter().enumerate() {
+            let slot_started = Instant::now();
+            let result = client
+                .ocr_region_with_scale(Some(&image_path), region, scale)
+                .map_err(|error| format!("技能位 {} OCR 失败: {error}", index + 1))?;
+            let mut texts = Vec::new();
+            let mut numeric = false;
+            for fragment in &result.fragments {
+                if fragment.ocr_confidence < min_confidence {
+                    continue;
+                }
+                let text = fragment.text.trim();
+                if text.is_empty() {
+                    continue;
+                }
+                if cooldown_text_is_numeric(text) {
+                    numeric = true;
+                }
+                texts.push(text.to_string());
+            }
+            slots.push(DebugSkillCooldownSlot {
+                index,
+                region,
+                text: texts.join(" "),
+                numeric,
+                cooling: numeric,
+                elapsed_ms: slot_started.elapsed().as_secs_f64() * 1000.0,
+            });
+        }
+    }
+
+    Ok(DebugSkillCooldownsResult {
+        section,
+        mode,
+        corner_dx,
+        corner_dy,
+        corner_w,
+        corner_h,
+        scale,
+        min_confidence,
+        elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
+        slots,
+    })
+}
+
 /// Snapshot of the attack-button probe the runner uses on the Battle
 /// screen to decide whether it's our turn. Template, region, and threshold
 /// come from `cv.json` (`Battle.variants.main.elements.attack_button`);

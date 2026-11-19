@@ -124,13 +124,13 @@ pub(crate) const AUTO_STATUS_CLOSE_REGION: NormRect = NormRect {
 };
 pub(crate) const AUTO_STATUS_CLOSE_THRESHOLD: f64 = 0.72;
 
-/// Bottom-right corner of one front-line skill button where the cooldown
-/// number is drawn. The box is wide enough for two digits and stops above the
-/// servant HP row so no unrelated number enters the crop.
-pub(crate) const SKILL_COOLDOWN_CORNER_LEFT_OFFSET: f64 = -0.008;
-pub(crate) const SKILL_COOLDOWN_CORNER_WIDTH: f64 = 0.038;
-pub(crate) const SKILL_COOLDOWN_CORNER_TOP: f64 = 0.816;
-pub(crate) const SKILL_COOLDOWN_CORNER_HEIGHT: f64 = 0.056;
+/// Tight crop around the cooldown number at a skill button's bottom-right
+/// corner. Values were calibrated on 1920×1080 frames: the OCR must see only
+/// the digit, never the "剩余/残り" word to its left.
+pub(crate) const SKILL_COOLDOWN_CORNER_DX: f64 = 0.012;
+pub(crate) const SKILL_COOLDOWN_CORNER_DY: f64 = 0.009;
+pub(crate) const SKILL_COOLDOWN_CORNER_WIDTH: f64 = 0.015;
+pub(crate) const SKILL_COOLDOWN_CORNER_HEIGHT: f64 = 0.040;
 
 /// Ally target positions for skill targeting (servant_1, servant_2, servant_3)
 pub(crate) const SKILL_TARGETS: [Point; 3] = [

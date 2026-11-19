@@ -261,6 +261,28 @@ export interface DebugSkillSlotsResultDto {
   slots: DebugSkillSlotDto[];
 }
 
+export interface DebugSkillCooldownSlotDto {
+  index: number;
+  region: NormRectDto;
+  text: string;
+  numeric: boolean;
+  cooling: boolean;
+  elapsedMs: number;
+}
+
+export interface DebugSkillCooldownsResultDto {
+  section: string;
+  mode: string;
+  cornerDx: number;
+  cornerDy: number;
+  cornerW: number;
+  cornerH: number;
+  scale: number;
+  minConfidence: number;
+  elapsedMs: number;
+  slots: DebugSkillCooldownSlotDto[];
+}
+
 export interface BattleSceneResultDto {
   region: NormRectDto;
   scene: number | null;

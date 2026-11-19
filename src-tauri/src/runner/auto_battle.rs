@@ -9,12 +9,10 @@ use super::*;
 
 /// How long we wait for any visible reaction after tapping a skill before
 /// treating it as "not usable this turn" (cooldown / already used).
-/// The cooldown-corner OCR is not reliable enough yet: it has produced both
-/// false "cooling" reads (skipping real skills on turn 1) and false "ready"
-/// reads. Keep it off so every real skill is attempted and the game's own
-/// "already used" dialog decides. Re-enable only after calibrating against
-/// real frames.
-const AUTO_SKILL_COOLDOWN_PROBE_ENABLED: bool = false;
+/// Cooldown pre-skip for the `readyOnly` mode. The tight bottom-right crop
+/// plus recognition-only batch was calibrated on real frames (9 slots in
+/// ~480ms) and is the mode the CV debug tool validates.
+const AUTO_SKILL_COOLDOWN_PROBE_ENABLED: bool = true;
 const AUTO_SKILL_REACTION_TIMEOUT: Duration = Duration::from_millis(700);
 /// Poll cadence while watching for a skill reaction.
 const AUTO_SKILL_REACTION_POLL: Duration = Duration::from_millis(150);
@@ -87,23 +85,27 @@ pub(crate) fn auto_skill_plan(strategy: &AutoBattleStrategy) -> Vec<(usize, usiz
 /// "剩余 / 残り" wording cannot interfere.
 pub(crate) fn skill_cooldown_corner_region(servant_slot: usize, skill_slot: usize) -> NormRect {
     let point = SERVANT_SKILLS[servant_slot.min(2)][skill_slot.min(2)];
+    cooldown_corner_around(point)
+}
+
+pub(crate) fn equipment_cooldown_corner_region(skill_slot: usize) -> NormRect {
+    cooldown_corner_around(EQUIPMENT_SKILLS[skill_slot.min(2)])
+}
+
+fn cooldown_corner_around(point: Point) -> NormRect {
     NormRect {
-        x: point.x + SKILL_COOLDOWN_CORNER_LEFT_OFFSET,
-        y: SKILL_COOLDOWN_CORNER_TOP,
+        x: point.x + SKILL_COOLDOWN_CORNER_DX,
+        y: point.y + SKILL_COOLDOWN_CORNER_DY,
         w: SKILL_COOLDOWN_CORNER_WIDTH,
         h: SKILL_COOLDOWN_CORNER_HEIGHT,
     }
 }
 
-/// The cooldown corner contains the remaining-turn digits only while the
-/// skill is cooling. The recognition-only pass returns the crop as one text
-/// line, so keep the result short and require a digit; this stays independent
-/// of CN/JP wording and ignores icon-art noise.
+/// A cooldown crop is judged cooling only when the recognized text is entirely
+/// digits. Stray letters (``J``) and the CN/JP label word must never count.
 pub(crate) fn cooldown_text_present(text: &str) -> bool {
     let trimmed = text.trim();
-    !trimmed.is_empty()
-        && trimmed.chars().count() <= 3
-        && trimmed.chars().any(|character| character.is_numeric())
+    !trimmed.is_empty() && trimmed.chars().all(|character| character.is_numeric())
 }
 
 /// Whether one normal-mode turn actually carries manual commands. A default
@@ -292,6 +294,31 @@ impl Runner {
         Some(present)
     }
 
+    /// Read one mystic-code skill's cooldown corner while the panel is open.
+    /// `None` means the probe failed and the caller should just tap it.
+    fn read_auto_equipment_skill_ready(
+        &mut self,
+        skill_slot: usize,
+    ) -> AutomationResult<Option<bool>> {
+        let region = equipment_cooldown_corner_region(skill_slot);
+        let texts = match self
+            .sidecar()
+            .recognize_strips(None, &[region])
+            .recoverable()
+        {
+            Ok(Ok(texts)) => texts,
+            Ok(Err(error)) | Err(error) => {
+                self.emit_debug(
+                    "Battle",
+                    &format!("自动战斗：御主礼装冷却识别不可用（{error}），继续尝试"),
+                );
+                return Ok(None);
+            }
+        };
+        let text = texts.first().map(String::as_str).unwrap_or("");
+        Ok(Some(!cooldown_text_present(text)))
+    }
+
     /// Read which front-line skill slots exist on the live Battle frame.
     /// `None` means the probe is unavailable and the caller should tap every
     /// planned slot (the status-popup fallback still applies).
@@ -474,6 +501,22 @@ impl Runner {
             return Ok(false);
         }
         thread::sleep(ACTION_DELAY + EQUIPMENT_PANEL_OPEN_EXTRA_WAIT);
+        if self
+            .auto_battle
+            .as_ref()
+            .is_some_and(|strategy| strategy.skill.mode == SkillUseMode::ReadyOnly)
+        {
+            if let Some(ready) = self.read_auto_equipment_skill_ready(skill_slot)? {
+                if !ready {
+                    self.emit("Battle", &format!("{label}：冷却中，跳过"));
+                    if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
+                        return Ok(false);
+                    }
+                    thread::sleep(ACTION_DELAY);
+                    return Ok(true);
+                }
+            }
+        }
         if !self.tap_at("Battle", pos) {
             return Ok(false);
         }
@@ -896,32 +939,36 @@ mod tests {
     }
 
     #[test]
-    fn cooldown_corner_boxes_cover_the_right_bottom_of_each_skill() {
+    fn cooldown_corner_boxes_use_the_calibrated_tight_crop() {
         for servant in 0..3 {
             for skill in 0..3 {
+                let point = SERVANT_SKILLS[servant][skill];
                 let region = skill_cooldown_corner_region(servant, skill);
-                let center_x = SERVANT_SKILLS[servant][skill].x;
-                // Overlaps the right half of the icon and stays inside the
-                // gap before the next button.
-                assert!(region.x < center_x);
-                assert!(region.x + region.w > center_x + 0.025);
-                assert!(region.x + region.w < center_x + 0.069);
-                assert!(region.y + region.h < 0.88);
-                // Wide enough for a two-digit number without reaching the
-                // neighbouring button's label.
-                assert!(region.w >= 0.036);
+                assert!((region.x - (point.x + SKILL_COOLDOWN_CORNER_DX)).abs() < 1e-9);
+                assert!((region.y - (point.y + SKILL_COOLDOWN_CORNER_DY)).abs() < 1e-9);
+                assert_eq!(region.w, SKILL_COOLDOWN_CORNER_WIDTH);
+                assert_eq!(region.h, SKILL_COOLDOWN_CORNER_HEIGHT);
             }
+        }
+        for skill in 0..3 {
+            let point = EQUIPMENT_SKILLS[skill];
+            let region = equipment_cooldown_corner_region(skill);
+            assert!((region.x - (point.x + SKILL_COOLDOWN_CORNER_DX)).abs() < 1e-9);
+            assert!((region.y - (point.y + SKILL_COOLDOWN_CORNER_DY)).abs() < 1e-9);
         }
     }
 
     #[test]
-    fn only_short_digit_texts_mark_cooldown() {
+    fn only_fully_numeric_texts_mark_cooldown() {
         assert!(cooldown_text_present("2"));
         assert!(cooldown_text_present("15"));
         assert!(cooldown_text_present(" 3 "));
         assert!(!cooldown_text_present(""));
+        assert!(!cooldown_text_present("J"));
+        assert!(!cooldown_text_present("余"));
         assert!(!cooldown_text_present("剩余"));
-        assert!(!cooldown_text_present("1234"));
+        assert!(!cooldown_text_present("3J"));
+        assert!(!cooldown_text_present("剩余3"));
         assert!(!cooldown_text_present("X 乙 剩余"));
     }
 

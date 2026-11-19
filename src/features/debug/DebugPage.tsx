@@ -57,6 +57,7 @@ import {
 import type {
   AttackButtonResultDto,
   BattleSceneResultDto,
+  DebugSkillCooldownsResultDto,
   DebugSkillSlotsResultDto,
   BondLevelUpReadResultDto,
   CommandCardMatchDto,
@@ -241,6 +242,19 @@ export function DebugPage({
   const [findingSkillSlots, setFindingSkillSlots] = useState(false);
   const [skillSlotThreshold, setSkillSlotThreshold] = useState(185);
   const [skillSlotMinFraction, setSkillSlotMinFraction] = useState(0.95);
+  const [skillCooldowns, setSkillCooldowns] =
+    useState<DebugSkillCooldownsResultDto | null>(null);
+  const [findingSkillCooldowns, setFindingSkillCooldowns] = useState(false);
+  const [cooldownCornerDx, setCooldownCornerDx] = useState(0.012);
+  const [cooldownCornerDy, setCooldownCornerDy] = useState(0.009);
+  const [cooldownCornerW, setCooldownCornerW] = useState(0.015);
+  const [cooldownCornerH, setCooldownCornerH] = useState(0.04);
+  const [cooldownScale, setCooldownScale] = useState(1);
+  const [cooldownMinConfidence, setCooldownMinConfidence] = useState(0.6);
+  const [cooldownSection, setCooldownSection] = useState<"servant" | "equipment">(
+    "servant"
+  );
+  const [cooldownMode, setCooldownMode] = useState<"det" | "rec">("det");
   const [supportServantId, setSupportServantId] = useState<number | null>(
     asNumberOrNull(initialPrefs.supportServantId)
   );
@@ -857,6 +871,7 @@ export function DebugPage({
     setSupportResult(null);
     setEnhancementServantResult(null);
     setSkillSlots(null);
+    setSkillCooldowns(null);
     log("已清除标注");
   }, [log]);
 
@@ -1258,6 +1273,71 @@ export function DebugPage({
       setFindingSkillSlots(false);
     }
   }, [capture, log, pushHistory, skillSlotThreshold, skillSlotMinFraction]);
+
+  const handleFindSkillCooldowns = useCallback(async () => {
+    if (!capture) return;
+    setFindingSkillCooldowns(true);
+    log(
+      `调用 debug_find_skill_cooldowns (${cooldownSection}/${cooldownMode}, dx=${cooldownCornerDx}, dy=${cooldownCornerDy}, w=${cooldownCornerW}, h=${cooldownCornerH}, scale=${cooldownScale}, minConf=${cooldownMinConfidence})`
+    );
+    try {
+      const result = await debugTiming.run("技能冷却识别", () =>
+        invoke<DebugSkillCooldownsResultDto>("debug_find_skill_cooldowns", {
+          section: cooldownSection,
+          mode: cooldownMode,
+          cornerDx: Number(cooldownCornerDx),
+          cornerDy: Number(cooldownCornerDy),
+          cornerW: Number(cooldownCornerW),
+          cornerH: Number(cooldownCornerH),
+          scale: Number(cooldownScale),
+          minConfidence: Number(cooldownMinConfidence),
+        })
+      );
+      setSkillCooldowns(result);
+      const cooling = result.slots.filter((slot) => slot.cooling).length;
+      setProbes((previous) => [
+        ...previous.filter((probe) => !probe.label.includes("冷却位")),
+        ...result.slots.map((slot) => ({
+          label: `${cooldownSection === "equipment" ? "礼装冷却位" : "冷却位"} ${slot.index + 1}`,
+          threshold: result.minConfidence,
+          match: {
+            found: true,
+            x: slot.region.x + slot.region.w / 2,
+            y: slot.region.y + slot.region.h / 2,
+            score: slot.cooling ? 1 : 0,
+            region: slot.region,
+          },
+          timestamp: new Date().toLocaleTimeString(),
+        })),
+      ]);
+      pushHistory({
+        label: "技能冷却识别",
+        summary: `${cooling}/${result.slots.length} 冷却 · ${result.elapsedMs.toFixed(0)}ms`,
+        ok: true,
+      });
+      log(
+        `技能冷却: ${cooling}/${result.slots.length} · ${result.elapsedMs.toFixed(
+          0
+        )}ms · ${result.slots.map((slot) => slot.text || "—").join(" | ")}`
+      );
+    } catch (err) {
+      log(`debug_find_skill_cooldowns 失败: ${err}`, "error");
+    } finally {
+      setFindingSkillCooldowns(false);
+    }
+  }, [
+    capture,
+    log,
+    pushHistory,
+    cooldownCornerDx,
+    cooldownCornerDy,
+    cooldownCornerW,
+    cooldownCornerH,
+    cooldownScale,
+    cooldownMinConfidence,
+    cooldownSection,
+    cooldownMode,
+  ]);
 
   const handleUseAllAvailableIds = useCallback(() => {
     setSelectedCardServantIds(availableServantIds);
@@ -2292,6 +2372,65 @@ export function DebugPage({
           </DebugSection>
 
           <DebugSection
+            title="技能冷却识别"
+            help={DEBUG_SECTION_HELP.skillCooldownsResult}
+            timing={
+              timingEnabled ? debugTiming.latest("技能冷却识别") : undefined
+            }
+            badge={
+              skillCooldowns
+                ? `${skillCooldowns.slots.filter((slot) => slot.cooling).length}/${skillCooldowns.slots.length}`
+                : undefined
+            }
+          >
+            <Box className="debug-match-list">
+              {!skillCooldowns && (
+                <Text size="1" color="gray">
+                  暂无识别结果
+                </Text>
+              )}
+              {skillCooldowns && (
+                <>
+                  {skillCooldowns.slots.map((slot) => (
+                    <Box
+                      key={`skill-cooldown-${slot.index}`}
+                      className={`debug-match-entry ${slot.cooling ? "found" : "missed"}`}
+                    >
+                      <Flex justify="between" align="center">
+                        <Text size="2" weight="medium">
+                          {skillCooldowns.section === "equipment"
+                            ? "礼装技能"
+                            : "技能位"}{" "}
+                          {slot.index + 1}
+                        </Text>
+                        <Text size="1" color={slot.cooling ? "green" : "gray"}>
+                          {slot.cooling ? "冷却中" : "就绪/无数字"}
+                        </Text>
+                      </Flex>
+                      <Text size="1" color="gray">
+                        OCR：{slot.text || "（空）"} ·{" "}
+                        {slot.elapsedMs.toFixed(0)}ms
+                      </Text>
+                      <Text size="1" color="gray">
+                        区域 ({slot.region.x.toFixed(3)}, {slot.region.y.toFixed(3)},{" "}
+                        {slot.region.w.toFixed(3)}, {slot.region.h.toFixed(3)})
+                      </Text>
+                    </Box>
+                  ))}
+                  <Text size="1" color="gray">
+                    耗时 {skillCooldowns.elapsedMs.toFixed(0)}ms · 模式{" "}
+                    {skillCooldowns.mode === "rec" ? "纯识别" : "检测+识别"} ·
+                    偏移 dx {skillCooldowns.cornerDx} · dy{" "}
+                    {skillCooldowns.cornerDy} · 尺寸 {skillCooldowns.cornerW}×
+                    {skillCooldowns.cornerH} · 放大 {skillCooldowns.scale} ·
+                    置信度 {skillCooldowns.minConfidence}
+                  </Text>
+                </>
+              )}
+            </Box>
+          </DebugSection>
+
+          <DebugSection
             title="强化从者头像识别"
             help={DEBUG_SECTION_HELP.enhancementServantInput}
             badge={
@@ -2486,6 +2625,115 @@ export function DebugPage({
                 onClick={handleFindSkillSlots}
               >
                 {findingSkillSlots ? "识别中…" : "识别技能位"}
+              </Button>
+            </Flex>
+          </DebugSection>
+
+          <DebugSection
+            title="技能冷却识别"
+            help={DEBUG_SECTION_HELP.skillCooldownsInput}
+            badge={
+              skillCooldowns
+                ? `${skillCooldowns.slots.filter((slot) => slot.cooling).length}/${skillCooldowns.slots.length}`
+                : undefined
+            }
+          >
+            <Flex gap="2" align="center" wrap="wrap" className="debug-toolbar">
+              <Select.Root
+                value={cooldownSection}
+                onValueChange={(value) =>
+                  setCooldownSection(value as "servant" | "equipment")
+                }
+              >
+                <Select.Trigger aria-label="冷却识别目标" />
+                <Select.Content>
+                  <Select.Item value="servant">从者技能</Select.Item>
+                  <Select.Item value="equipment">御主礼装技能</Select.Item>
+                </Select.Content>
+              </Select.Root>
+              <Select.Root
+                value={cooldownMode}
+                onValueChange={(value) =>
+                  setCooldownMode(value as "det" | "rec")
+                }
+              >
+                <Select.Trigger aria-label="冷却识别模式" />
+                <Select.Content>
+                  <Select.Item value="det">检测+识别（慢）</Select.Item>
+                  <Select.Item value="rec">纯识别（快）</Select.Item>
+                </Select.Content>
+              </Select.Root>
+              {[
+                ["dx", cooldownCornerDx, setCooldownCornerDx, -0.1, 0.1],
+                ["dy", cooldownCornerDy, setCooldownCornerDy, 0, 0.15],
+                ["w", cooldownCornerW, setCooldownCornerW, 0.01, 0.1],
+                ["h", cooldownCornerH, setCooldownCornerH, 0.01, 0.1],
+              ].map(([label, value, setter, min, max]) => (
+                <Flex align="center" gap="1" key={`cooldown-${label}`}>
+                  <Text size="1" color="gray">
+                    {label as string}
+                  </Text>
+                  <TextField.Root
+                    className="debug-threshold-field"
+                    type="number"
+                    min={min as number}
+                    max={max as number}
+                    step={0.002}
+                    value={value as number}
+                    onChange={(event) =>
+                      (setter as (next: number) => void)(
+                        Math.max(
+                          min as number,
+                          Math.min(max as number, Number(event.target.value) || 0)
+                        )
+                      )
+                    }
+                  />
+                </Flex>
+              ))}
+              <Flex align="center" gap="1">
+                <Text size="1" color="gray">
+                  放大
+                </Text>
+                <TextField.Root
+                  className="debug-threshold-field"
+                  type="number"
+                  min={1}
+                  max={6}
+                  step={0.5}
+                  value={cooldownScale}
+                  onChange={(event) =>
+                    setCooldownScale(
+                      Math.max(1, Math.min(6, Number(event.target.value) || 3))
+                    )
+                  }
+                />
+              </Flex>
+              <Flex align="center" gap="1">
+                <Text size="1" color="gray">
+                  置信度
+                </Text>
+                <TextField.Root
+                  className="debug-threshold-field"
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={cooldownMinConfidence}
+                  onChange={(event) =>
+                    setCooldownMinConfidence(
+                      Math.max(0, Math.min(1, Number(event.target.value) || 0))
+                    )
+                  }
+                />
+              </Flex>
+              <Button
+                type="button"
+                size="1"
+                disabled={findingSkillCooldowns || !capture}
+                onClick={handleFindSkillCooldowns}
+              >
+                {findingSkillCooldowns ? "识别中…" : "识别冷却"}
               </Button>
             </Flex>
           </DebugSection>
