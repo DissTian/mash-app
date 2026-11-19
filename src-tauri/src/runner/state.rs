@@ -43,6 +43,8 @@ pub(crate) struct BattleState {
     /// `(scene, turn)` that already had auto-battle skills executed, so a
     /// polling loop never taps the same skill set twice in one turn.
     pub(crate) auto_skills_turn_key: Option<(usize, usize)>,
+    /// Keep the cooldown-probe fallback warning to one entry per run.
+    pub(crate) auto_cooldown_probe_warned: bool,
     /// Whether we used the scene config (vs fallback) — drives card selection
     pub(crate) scene_config_used: bool,
     /// Consecutive command-card owner recognition failures across the current
@@ -78,6 +80,7 @@ impl BattleState {
             executed_scene_index: None,
             executed_turn_key: None,
             auto_skills_turn_key: None,
+            auto_cooldown_probe_warned: false,
             scene_config_used: false,
             command_card_owner_failure_count: 0,
             command_card_owner_fallback_to_full_party: false,

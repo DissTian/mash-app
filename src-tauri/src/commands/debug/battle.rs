@@ -205,6 +205,78 @@ pub fn debug_read_battle_scene(
     })
 }
 
+/// One expected front-line skill slot and whether its white frame edge was
+/// found in the skill bar.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugSkillSlot {
+    pub index: usize,
+    pub present: bool,
+    #[serde(default)]
+    pub region: Option<NormRect>,
+    #[serde(default)]
+    pub score: f64,
+    #[serde(default)]
+    pub border_y: Option<f64>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DebugSkillSlotsResult {
+    pub region: NormRect,
+    #[serde(default)]
+    pub threshold: f64,
+    #[serde(default)]
+    pub min_fraction: f64,
+    #[serde(default)]
+    pub slots: Vec<DebugSkillSlot>,
+}
+
+/// Detect which front-line skill buttons exist on the most recent debug
+/// screenshot. Read-only CV tool: no runner integration yet.
+#[tauri::command]
+pub fn debug_find_skill_slots(
+    app: tauri::AppHandle,
+    threshold: f64,
+    min_fraction: f64,
+    server_state: tauri::State<'_, Mutex<Server>>,
+    debug_state: tauri::State<'_, DebugSidecar>,
+    handle_state: tauri::State<'_, Mutex<RunnerHandle>>,
+    enhancement_handle_state: tauri::State<'_, Mutex<EnhancementRunnerHandle>>,
+    ce_enhancement_handle_state: tauri::State<'_, Mutex<CraftEssenceEnhancementRunnerHandle>>,
+    friend_point_summon_handle_state: tauri::State<'_, Mutex<FriendPointSummonRunnerHandle>>,
+) -> Result<DebugSkillSlotsResult, String> {
+    require_automation_idle(
+        &handle_state,
+        &enhancement_handle_state,
+        &ce_enhancement_handle_state,
+        &friend_point_summon_handle_state,
+    )?;
+
+    let image_path = debug_image_path(&app);
+    if !image_path.exists() {
+        return Err("尚未截取画面，请先点击 截取画面".into());
+    }
+
+    ensure_debug_sidecar(&app, &debug_state, current_server(&server_state))?;
+
+    let points: Vec<Point> = crate::runner::SERVANT_SKILLS
+        .iter()
+        .flatten()
+        .copied()
+        .collect();
+    let region = crate::runner::SKILL_SLOT_SCAN_REGION;
+
+    let mut guard = debug_state.0.lock().unwrap();
+    let client = guard
+        .as_mut()
+        .ok_or_else(|| "debug sidecar not initialized".to_string())?;
+    let resp =
+        client.find_skill_slots(Some(&image_path), &points, region, threshold, min_fraction)?;
+    serde_json::from_value(resp)
+        .map_err(|error| format!("invalid find_skill_slots response: {error}"))
+}
+
 /// Snapshot of the attack-button probe the runner uses on the Battle
 /// screen to decide whether it's our turn. Template, region, and threshold
 /// come from `cv.json` (`Battle.variants.main.elements.attack_button`);

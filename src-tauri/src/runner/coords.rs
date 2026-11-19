@@ -102,6 +102,36 @@ pub(crate) const BATTLE_SCENE_REGION: NormRect = NormRect {
     h: 0.062,
 };
 
+/// Skill-slot presence probe shared by the debug tool and the auto-battle
+/// runner: scan only the strip that can hold each button's white top frame.
+pub(crate) const SKILL_SLOT_SCAN_REGION: NormRect = NormRect {
+    x: 0.0,
+    y: 0.735,
+    w: 0.76,
+    h: 0.070,
+};
+pub(crate) const SKILL_SLOT_WHITE_LUMA: f64 = 185.0;
+/// Measured real buttons score 1.00; empty slots 0.07–0.20.
+pub(crate) const SKILL_SLOT_MIN_FRACTION: f64 = 0.95;
+
+/// Top-right close button of the servant-status popup that opens when an
+/// empty skill slot is tapped. Reuses the shared battle close template.
+pub(crate) const AUTO_STATUS_CLOSE_REGION: NormRect = NormRect {
+    x: 0.800,
+    y: 0.055,
+    w: 0.110,
+    h: 0.120,
+};
+pub(crate) const AUTO_STATUS_CLOSE_THRESHOLD: f64 = 0.72;
+
+/// Bottom-right corner of one front-line skill button where the cooldown
+/// number is drawn. The box is wide enough for two digits and stops above the
+/// servant HP row so no unrelated number enters the crop.
+pub(crate) const SKILL_COOLDOWN_CORNER_LEFT_OFFSET: f64 = -0.008;
+pub(crate) const SKILL_COOLDOWN_CORNER_WIDTH: f64 = 0.038;
+pub(crate) const SKILL_COOLDOWN_CORNER_TOP: f64 = 0.816;
+pub(crate) const SKILL_COOLDOWN_CORNER_HEIGHT: f64 = 0.056;
+
 /// Ally target positions for skill targeting (servant_1, servant_2, servant_3)
 pub(crate) const SKILL_TARGETS: [Point; 3] = [
     Point::new(0.254, 0.474),

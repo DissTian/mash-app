@@ -57,6 +57,7 @@ import {
 import type {
   AttackButtonResultDto,
   BattleSceneResultDto,
+  DebugSkillSlotsResultDto,
   BondLevelUpReadResultDto,
   CommandCardMatchDto,
   DebugCaptureResult,
@@ -234,6 +235,12 @@ export function DebugPage({
   const [attackButton, setAttackButton] =
     useState<AttackButtonResultDto | null>(null);
   const [findingAttackButton, setFindingAttackButton] = useState(false);
+  const [skillSlots, setSkillSlots] = useState<DebugSkillSlotsResultDto | null>(
+    null
+  );
+  const [findingSkillSlots, setFindingSkillSlots] = useState(false);
+  const [skillSlotThreshold, setSkillSlotThreshold] = useState(185);
+  const [skillSlotMinFraction, setSkillSlotMinFraction] = useState(0.95);
   const [supportServantId, setSupportServantId] = useState<number | null>(
     asNumberOrNull(initialPrefs.supportServantId)
   );
@@ -849,6 +856,7 @@ export function DebugPage({
     setAttackButton(null);
     setSupportResult(null);
     setEnhancementServantResult(null);
+    setSkillSlots(null);
     log("已清除标注");
   }, [log]);
 
@@ -1202,6 +1210,54 @@ export function DebugPage({
       setFindingAttackButton(false);
     }
   }, [capture, log, pushHistory]);
+
+  const handleFindSkillSlots = useCallback(async () => {
+    if (!capture) return;
+    setFindingSkillSlots(true);
+    log(
+      `调用 debug_find_skill_slots (threshold=${skillSlotThreshold}, minFraction=${skillSlotMinFraction})`
+    );
+    try {
+      const result = await debugTiming.run("技能位识别", () =>
+        invoke<DebugSkillSlotsResultDto>("debug_find_skill_slots", {
+          threshold: Number(skillSlotThreshold),
+          minFraction: Number(skillSlotMinFraction),
+        })
+      );
+      setSkillSlots(result);
+      const found = result.slots.filter((slot) => slot.present).length;
+      setProbes((previous) => [
+        ...previous.filter((probe) => !probe.label.startsWith("技能位")),
+        ...result.slots
+          .filter((slot) => slot.present && slot.region)
+          .map((slot) => {
+            const region = slot.region!;
+            return {
+              label: `技能位 ${slot.index + 1}`,
+              threshold: result.threshold,
+              match: {
+                found: true,
+                x: region.x + region.w / 2,
+                y: region.y + region.h / 2,
+                score: slot.score,
+                region,
+              },
+              timestamp: new Date().toLocaleTimeString(),
+            };
+          }),
+      ]);
+      pushHistory({
+        label: "技能位识别",
+        summary: `${found}/9`,
+        ok: found === 9,
+      });
+      log(`技能位: ${found}/9 存在 · 判定占比 ${result.minFraction.toFixed(2)}`);
+    } catch (err) {
+      log(`debug_find_skill_slots 失败: ${err}`, "error");
+    } finally {
+      setFindingSkillSlots(false);
+    }
+  }, [capture, log, pushHistory, skillSlotThreshold, skillSlotMinFraction]);
 
   const handleUseAllAvailableIds = useCallback(() => {
     setSelectedCardServantIds(availableServantIds);
@@ -1996,7 +2052,8 @@ export function DebugPage({
                 enhancementServantResult === null &&
                 bondLevelUpResult === null &&
                 battleScene === null &&
-                attackButton === null
+                attackButton === null &&
+                skillSlots === null
               }
               onClick={handleClearOverlays}
             >
@@ -2187,6 +2244,54 @@ export function DebugPage({
           </DebugSection>
 
           <DebugSection
+            title="技能位识别"
+            help={DEBUG_SECTION_HELP.skillSlotsResult}
+            timing={timingEnabled ? debugTiming.latest("技能位识别") : undefined}
+            badge={
+              skillSlots
+                ? `${skillSlots.slots.filter((slot) => slot.present).length}/9`
+                : undefined
+            }
+          >
+            <Box className="debug-match-list">
+              {!skillSlots && (
+                <Text size="1" color="gray">
+                  暂无识别结果
+                </Text>
+              )}
+              {skillSlots && (
+                <>
+                  {skillSlots.slots.map((slot) => (
+                    <Box
+                      key={`skill-slot-${slot.index}`}
+                      className={`debug-match-entry ${slot.present ? "found" : "missed"}`}
+                    >
+                      <Flex justify="between" align="center">
+                        <Text size="2" weight="medium">
+                          技能位 {slot.index + 1}
+                        </Text>
+                        <Text size="1" color={slot.present ? "green" : "red"}>
+                          {slot.present ? "存在" : "空位"}
+                        </Text>
+                      </Flex>
+                      <Text size="1" color="gray">
+                        白边占比 {slot.score.toFixed(2)}
+                        {slot.region
+                          ? ` · 区域 (${slot.region.x.toFixed(3)}, ${slot.region.y.toFixed(3)}, ${slot.region.w.toFixed(3)}, ${slot.region.h.toFixed(3)})`
+                          : ""}
+                      </Text>
+                    </Box>
+                  ))}
+                  <Text size="1" color="gray">
+                    阈值 {skillSlots.threshold.toFixed(0)} · 判定占比{" "}
+                    {skillSlots.minFraction.toFixed(2)} · 扫描 9 个技能位
+                  </Text>
+                </>
+              )}
+            </Box>
+          </DebugSection>
+
+          <DebugSection
             title="强化从者头像识别"
             help={DEBUG_SECTION_HELP.enhancementServantInput}
             badge={
@@ -2324,6 +2429,63 @@ export function DebugPage({
                 onClick={handleFindAttackButton}
               >
                 {findingAttackButton ? "识别中…" : "识别攻击按钮"}
+              </Button>
+            </Flex>
+          </DebugSection>
+
+          <DebugSection
+            title="技能位识别"
+            help={DEBUG_SECTION_HELP.skillSlotsInput}
+            badge={
+              skillSlots
+                ? `${skillSlots.slots.filter((slot) => slot.present).length}/9`
+                : undefined
+            }
+          >
+            <Flex gap="2" align="center" wrap="wrap" className="debug-toolbar">
+              <Flex align="center" gap="1">
+                <Text size="1" color="gray">
+                  白框阈值
+                </Text>
+                <TextField.Root
+                  className="debug-threshold-field"
+                  type="number"
+                  min={0}
+                  max={255}
+                  step={5}
+                  value={skillSlotThreshold}
+                  onChange={(event) =>
+                    setSkillSlotThreshold(
+                      Math.max(0, Math.min(255, Number(event.target.value) || 0))
+                    )
+                  }
+                />
+              </Flex>
+              <Flex align="center" gap="1">
+                <Text size="1" color="gray">
+                  判定占比
+                </Text>
+                <TextField.Root
+                  className="debug-threshold-field"
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={skillSlotMinFraction}
+                  onChange={(event) =>
+                    setSkillSlotMinFraction(
+                      Math.max(0, Math.min(1, Number(event.target.value) || 0))
+                    )
+                  }
+                />
+              </Flex>
+              <Button
+                type="button"
+                size="1"
+                disabled={findingSkillSlots || !capture}
+                onClick={handleFindSkillSlots}
+              >
+                {findingSkillSlots ? "识别中…" : "识别技能位"}
               </Button>
             </Flex>
           </DebugSection>

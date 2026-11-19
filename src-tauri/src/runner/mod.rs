@@ -4,8 +4,8 @@
 use crate::automation_error::{AutomationResult, AutomationResultExt};
 mod actions;
 mod ap_recovery;
-mod auto_battle;
 mod attack;
+mod auto_battle;
 mod config;
 mod coords;
 mod diagnostics;
@@ -48,17 +48,18 @@ use crate::screen::{
 };
 use crate::touch::{self, TouchBackend};
 #[cfg(test)]
-use crate::SkillSlotRef;
-#[cfg(test)]
 use crate::GrandCardRuleSlotConfig;
+#[cfg(test)]
+use crate::SkillSlotRef;
 use crate::{
     default_grand_chain_priority, load_servant_metadata_for_variant, servant_np_card, Action,
     AdvancedBattleScene, AdvancedCardStrategy, AdvancedCommandCardCondition, AdvancedOutputType,
-    AdvancedRule, AttackCard, AttackMemberPriorityItem, AttackMode, AutoBattleStrategy, BattleScene,
-    BattleTurn, CommandCardColor, CommandCardMode, CommandCardStrategy, CriticalAttackStrategy, CriticalChainType,
-    EnemyTargetMode, FailurePolicy, GrandCardRuleConfig, GrandCardStrategy, GrandChainPriorityItem, GrandClass,
-    GrandClassDefinition, GrandRoleDefinition, GrandServantConfig, LancerGrandRole,
-    NoblePhantasmUseMode, ServantMetadata, Server, SkillOrder, SkillTargetMode, SkillUseMode,
+    AdvancedRule, AttackCard, AttackMemberPriorityItem, AttackMode, AutoBattleStrategy,
+    BattleScene, BattleTurn, CommandCardColor, CommandCardMode, CommandCardStrategy,
+    CriticalAttackStrategy, CriticalChainType, EnemyTargetMode, FailurePolicy, GrandCardRuleConfig,
+    GrandCardStrategy, GrandChainPriorityItem, GrandClass, GrandClassDefinition,
+    GrandRoleDefinition, GrandServantConfig, LancerGrandRole, NoblePhantasmUseMode,
+    ServantMetadata, Server, SkillOrder, SkillTargetMode, SkillUseMode,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -209,6 +210,9 @@ pub struct Runner {
     /// Resolved auto-battle strategy snapshot. `None` means the project did
     /// not enable takeover; `Some` drives the normal-mode fallback turns.
     auto_battle: Option<AutoBattleStrategy>,
+    /// Per-skill cooldown-label OCR text from this turn, kept for diagnostics
+    /// when a supposedly-ready skill turns out to be on cooldown.
+    auto_skill_label_texts: [String; 9],
     /// Pluggable touch-injection backend (see `touch::TouchBackend`).
     /// Chooses scrcpy when available, otherwise ADB Input.
     /// The runner just calls `tap` / `swipe` /
@@ -297,6 +301,7 @@ impl Runner {
             team_check_targets,
             mystic_code_name,
             auto_battle,
+            auto_skill_label_texts: std::array::from_fn(|_| String::new()),
         }
     }
 }

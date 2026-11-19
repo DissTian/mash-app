@@ -661,6 +661,119 @@ def _read_region_luma(img: np.ndarray, region: dict) -> dict:
     }
 
 
+# Only the strip that can contain the button's top frame edge. Extending this
+# down to the HP/name rows lets their white lines produce false positives.
+SKILL_SLOT_BAR_REGION = {"x": 0.0, "y": 0.735, "w": 0.76, "h": 0.070}
+SKILL_SLOT_WHITE_LUMA = 185
+SKILL_SLOT_MIN_FRACTION = 0.95
+SKILL_SLOT_HALF_WIDTH = 0.023
+SKILL_SLOT_ICON_HEIGHT = 0.085
+
+
+def _find_skill_slots(
+    img: np.ndarray,
+    points: list[dict],
+    region: Optional[dict] = None,
+    threshold: float = SKILL_SLOT_WHITE_LUMA,
+    min_fraction: float = SKILL_SLOT_MIN_FRACTION,
+    half_width: float = SKILL_SLOT_HALF_WIDTH,
+) -> dict:
+    """Detect which front-line skill buttons exist in the bottom skill bar.
+
+    Every real skill button has a near-white top frame edge; an empty (locked)
+    slot shows the battle background. For each expected button center we scan
+    the rows above/below it and take the row with the highest near-white
+    fraction across the button width. A real frame yields ~1.0, an empty slot
+    stays far below (measured 0.17–0.22).
+
+    Searching every row makes this robust to resolution/scale differences;
+    unlike contour detection it cannot merge icon art into one blob.
+    """
+    h, w = img.shape[:2]
+    if h == 0 or w == 0 or not points:
+        return {"slots": [], "error": "empty_frame"}
+
+    region = region or SKILL_SLOT_BAR_REGION
+    rx = max(0, int(round(float(region.get("x", 0.0)) * w)))
+    ry = max(0, int(round(float(region.get("y", 0.0)) * h)))
+    rw = max(1, min(int(round(float(region.get("w", 1.0)) * w)), w - rx))
+    rh = max(1, min(int(round(float(region.get("h", 1.0)) * h)), h - ry))
+    if rw <= 0 or rh <= 0:
+        return {"slots": [], "error": "empty_region"}
+
+    r, g, b = img[:, :, 0], img[:, :, 1], img[:, :, 2]
+    luma = 0.299 * r + 0.587 * g + 0.114 * b
+    mx = img.max(axis=2)
+    mn = img.min(axis=2)
+    sat = np.where(mx > 0, (mx - mn) / np.maximum(mx, 1), 0.0)
+    white = ((luma > float(threshold)) & (sat < 0.35)).astype(np.float32)
+
+    slots: list[dict] = []
+    for index, point in enumerate(points):
+        px = float(point.get("x", 0.0))
+        py = float(point.get("y", 0.0))
+        x0 = max(0, int(round((px - float(half_width)) * w)))
+        x1 = min(w, int(round((px + float(half_width)) * w)))
+        if x1 <= x0:
+            slots.append(
+                {
+                    "index": index,
+                    "present": False,
+                    "region": None,
+                    "score": 0.0,
+                    "borderY": None,
+                }
+            )
+            continue
+        band = white[ry : ry + rh, x0:x1]
+        if band.size == 0:
+            slots.append(
+                {
+                    "index": index,
+                    "present": False,
+                    "region": None,
+                    "score": 0.0,
+                    "borderY": None,
+                }
+            )
+            continue
+        row_fractions = band.mean(axis=1)
+        best_row = int(np.argmax(row_fractions))
+        best_fraction = float(row_fractions[best_row])
+        border_y = (ry + best_row) / h
+        present = best_fraction >= float(min_fraction)
+        slots.append(
+            {
+                "index": index,
+                "present": present,
+                "region": (
+                    {
+                        "x": (px - float(half_width)),
+                        "y": max(0.0, border_y - 0.002),
+                        "w": float(half_width) * 2.0,
+                        "h": SKILL_SLOT_ICON_HEIGHT,
+                    }
+                    if present
+                    else None
+                ),
+                "score": best_fraction,
+                "borderY": border_y,
+            }
+        )
+
+    return {
+        "region": {
+            "x": rx / w,
+            "y": ry / h,
+            "w": rw / w,
+            "h": rh / h,
+        },
+        "threshold": float(threshold),
+        "minFraction": float(min_fraction),
+        "slots": slots,
+    }
+
+
 def _probe_order_change_selection(
     img: np.ndarray,
     slot_x: float,
@@ -8102,12 +8215,37 @@ def _main_repl() -> None:
                             else:
                                 texts.append("")
                         _reply(req_id, {"texts": texts, "elapsed": elapsed})
+            elif action == "find_skill_slots":
+                img, err = _load_frame(cmd)
+                if img is None:
+                    _reply(
+                        req_id,
+                        {"slots": [], "candidates": [], "error": err},
+                    )
+                else:
+                    _reply(
+                        req_id,
+                        _find_skill_slots(
+                            img,
+                            cmd.get("points") or [],
+                            cmd.get("region"),
+                            float(cmd.get("threshold", SKILL_SLOT_WHITE_LUMA)),
+                            float(cmd.get("minFraction", SKILL_SLOT_MIN_FRACTION)),
+                        ),
+                    )
             elif action == "ocr_region":
                 img, err = _load_frame(cmd)
                 if img is None:
                     _reply(req_id, {"fragments": [], "fullText": "", "error": err})
                 else:
-                    _reply(req_id, _ocr_region(img, cmd.get("region", DEFAULT_REGION)))
+                    _reply(
+                        req_id,
+                        _ocr_region(
+                            img,
+                            cmd.get("region", DEFAULT_REGION),
+                            scale=float(cmd.get("scale", 1.0)),
+                        ),
+                    )
             elif action == "read_bond_level_up":
                 img, err = _load_frame(cmd)
                 if img is None:

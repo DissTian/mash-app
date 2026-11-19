@@ -9,6 +9,12 @@ use super::*;
 
 /// How long we wait for any visible reaction after tapping a skill before
 /// treating it as "not usable this turn" (cooldown / already used).
+/// The cooldown-corner OCR is not reliable enough yet: it has produced both
+/// false "cooling" reads (skipping real skills on turn 1) and false "ready"
+/// reads. Keep it off so every real skill is attempted and the game's own
+/// "already used" dialog decides. Re-enable only after calibrating against
+/// real frames.
+const AUTO_SKILL_COOLDOWN_PROBE_ENABLED: bool = false;
 const AUTO_SKILL_REACTION_TIMEOUT: Duration = Duration::from_millis(700);
 /// Poll cadence while watching for a skill reaction.
 const AUTO_SKILL_REACTION_POLL: Duration = Duration::from_millis(150);
@@ -23,6 +29,8 @@ enum AutoSkillReaction {
     Confirm,
     AlreadyUsed,
     TargetPicker(Point),
+    /// Tapping the slot opened the servant-status popup; close it and skip.
+    StatusPopup(Point),
     /// The action menu disappeared: the skill actually started.
     AnimationStarted,
     None,
@@ -36,6 +44,9 @@ enum AutoSkillOutcome {
     /// The auto system could not execute the skill (unsupported dialog or an
     /// unresolved target). `failure: stopRun` turns this into a run failure.
     Blocked,
+    /// A tap left the battle flow and the recovery taps failed. The run must
+    /// stop instead of tapping blind on the unknown screen.
+    Fatal,
 }
 
 /// 0-based `(front-line slot, skill slot)` pairs in execution order.
@@ -69,6 +80,30 @@ pub(crate) fn auto_skill_plan(strategy: &AutoBattleStrategy) -> Vec<(usize, usiz
         SkillOrder::SkillMajor => plan.sort_unstable_by_key(|(servant, skill)| (*skill, *servant)),
     }
     plan
+}
+
+/// Bottom-right corner of one front-line skill button, relative to its center.
+/// This is the only crop the cooldown probe reads, so icon art and the
+/// "剩余 / 残り" wording cannot interfere.
+pub(crate) fn skill_cooldown_corner_region(servant_slot: usize, skill_slot: usize) -> NormRect {
+    let point = SERVANT_SKILLS[servant_slot.min(2)][skill_slot.min(2)];
+    NormRect {
+        x: point.x + SKILL_COOLDOWN_CORNER_LEFT_OFFSET,
+        y: SKILL_COOLDOWN_CORNER_TOP,
+        w: SKILL_COOLDOWN_CORNER_WIDTH,
+        h: SKILL_COOLDOWN_CORNER_HEIGHT,
+    }
+}
+
+/// The cooldown corner contains the remaining-turn digits only while the
+/// skill is cooling. The recognition-only pass returns the crop as one text
+/// line, so keep the result short and require a digit; this stays independent
+/// of CN/JP wording and ignores icon-art noise.
+pub(crate) fn cooldown_text_present(text: &str) -> bool {
+    let trimmed = text.trim();
+    !trimmed.is_empty()
+        && trimmed.chars().count() <= 3
+        && trimmed.chars().any(|character| character.is_numeric())
 }
 
 /// Whether one normal-mode turn actually carries manual commands. A default
@@ -136,6 +171,75 @@ impl Runner {
         self.auto_battle.as_ref().and_then(auto_enemy_target_for)
     }
 
+    /// Read each planned skill's bottom-right cooldown corner with one
+    /// recognition-only batch. `None` means the probe is unavailable, in which
+    /// case the caller falls back to tapping every skill until the game
+    /// rejects it.
+    fn read_auto_skill_readiness(
+        &mut self,
+        plan: &[(usize, usize)],
+    ) -> AutomationResult<Option<[bool; 9]>> {
+        let regions: Vec<NormRect> = plan
+            .iter()
+            .map(|&(servant_slot, skill_slot)| {
+                skill_cooldown_corner_region(servant_slot, skill_slot)
+            })
+            .collect();
+        let texts = match self
+            .sidecar()
+            .recognize_strips(None, &regions)
+            .recoverable()
+        {
+            Ok(Ok(texts)) => texts,
+            Ok(Err(error)) | Err(error) => {
+                if !self.battle.auto_cooldown_probe_warned {
+                    self.battle.auto_cooldown_probe_warned = true;
+                    self.emit_warn(
+                        "Battle",
+                        &format!("自动战斗：技能冷却识别不可用，退回逐个点击（{error}）"),
+                    );
+                } else {
+                    self.emit_debug(
+                        "Battle",
+                        &format!("自动战斗：技能冷却识别仍不可用：{error}"),
+                    );
+                }
+                return Ok(None);
+            }
+        };
+
+        let mut ready = [true; 9];
+        let mut cooling = Vec::new();
+        for (position, &(servant_slot, skill_slot)) in plan.iter().enumerate() {
+            let index = servant_slot * 3 + skill_slot;
+            let text = texts.get(position).map(String::as_str).unwrap_or("");
+            self.auto_skill_label_texts[index] = text.trim().to_string();
+            self.emit_local_debug(
+                "Battle",
+                &format!(
+                    "自动战斗：从者 {} 技能 {} 右下角 OCR {:?}",
+                    servant_slot + 1,
+                    skill_slot + 1,
+                    text
+                ),
+            );
+            if cooldown_text_present(text) {
+                ready[index] = false;
+                cooling.push(format!("从者{}技能{}", servant_slot + 1, skill_slot + 1));
+            }
+        }
+        if !cooling.is_empty() {
+            self.emit(
+                "Battle",
+                &format!(
+                    "自动战斗：冷却技能 {}（跳过后不再点击）",
+                    cooling.join("、")
+                ),
+            );
+        }
+        Ok(Some(ready))
+    }
+
     /// Choose and submit the auto chain for the Attack screen.
     pub(crate) fn pick_and_tap_auto(
         &mut self,
@@ -165,6 +269,57 @@ impl Runner {
         self.tap_picks("Attack", &picks, cards, &party_ids)
     }
 
+    /// Parse the sidecar skill-slot response into per-slot presence flags.
+    pub(crate) fn skill_presence_from_response(response: &serde_json::Value) -> Option<[bool; 9]> {
+        let slots = response.get("slots")?.as_array()?;
+        let mut present = [true; 9];
+        let mut seen = [false; 9];
+        for slot in slots {
+            let index = slot.get("index").and_then(|value| value.as_u64())? as usize;
+            if index >= 9 {
+                continue;
+            }
+            present[index] = slot
+                .get("present")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(true);
+            seen[index] = true;
+        }
+        // A partial response must not silently skip slots.
+        if seen.iter().any(|seen| !seen) {
+            return None;
+        }
+        Some(present)
+    }
+
+    /// Read which front-line skill slots exist on the live Battle frame.
+    /// `None` means the probe is unavailable and the caller should tap every
+    /// planned slot (the status-popup fallback still applies).
+    fn read_auto_skill_presence(&mut self) -> AutomationResult<Option<[bool; 9]>> {
+        let points: Vec<Point> = SERVANT_SKILLS.iter().flatten().copied().collect();
+        let response = match self
+            .sidecar()
+            .find_skill_slots(
+                None,
+                &points,
+                SKILL_SLOT_SCAN_REGION,
+                SKILL_SLOT_WHITE_LUMA,
+                SKILL_SLOT_MIN_FRACTION,
+            )
+            .recoverable()
+        {
+            Ok(Ok(response)) => response,
+            Ok(Err(error)) | Err(error) => {
+                self.emit_debug(
+                    "Battle",
+                    &format!("自动战斗：技能位识别不可用，按全部技能位尝试（{error}）"),
+                );
+                return Ok(None);
+            }
+        };
+        Ok(Self::skill_presence_from_response(&response))
+    }
+
     /// Execute this turn's auto skills. Returns `false` when the run must
     /// stop (cancelled or a tap error); ordinary skips return `true`.
     pub(crate) fn execute_auto_skills(&mut self) -> AutomationResult<bool> {
@@ -176,6 +331,24 @@ impl Runner {
         if plan.is_empty() && equipment.is_empty() {
             return Ok(true);
         }
+        let readiness = if AUTO_SKILL_COOLDOWN_PROBE_ENABLED
+            && strategy.skill.mode == SkillUseMode::ReadyOnly
+        {
+            self.read_auto_skill_readiness(&plan)?
+        } else {
+            None
+        };
+        let presence = self.read_auto_skill_presence()?;
+        if let Some(present) = &presence {
+            let count = present.iter().filter(|present| **present).count();
+            if count < 9 {
+                self.emit(
+                    "Battle",
+                    &format!("自动战斗：技能位 {count}/9 存在，跳过空位"),
+                );
+            }
+        }
+
         self.emit(
             "Battle",
             &format!(
@@ -192,6 +365,29 @@ impl Runner {
         for (servant_slot, skill_slot) in plan {
             if self.is_cancelled() {
                 return Ok(false);
+            }
+            let index = servant_slot * 3 + skill_slot;
+            if presence.as_ref().is_some_and(|present| !present[index]) {
+                self.emit_debug(
+                    "Battle",
+                    &format!(
+                        "自动战斗：从者 {} 技能 {} 未解锁/空位，跳过",
+                        servant_slot + 1,
+                        skill_slot + 1
+                    ),
+                );
+                continue;
+            }
+            if readiness.as_ref().is_some_and(|ready| !ready[index]) {
+                self.emit_debug(
+                    "Battle",
+                    &format!(
+                        "自动战斗：从者 {} 技能 {} 冷却中，跳过",
+                        servant_slot + 1,
+                        skill_slot + 1
+                    ),
+                );
+                continue;
             }
             if !self.execute_auto_servant_skill(servant_slot, skill_slot)? {
                 return Ok(false);
@@ -235,7 +431,8 @@ impl Runner {
             return Ok(false);
         }
         thread::sleep(SKILL_TAP_DELAY);
-        let outcome = self.finish_auto_skill(Some(servant_slot), &label)?;
+        let label_text = self.auto_skill_label_texts[servant_slot * 3 + skill_slot].clone();
+        let outcome = self.finish_auto_skill(Some(servant_slot), &label, &label_text)?;
         self.handle_auto_skill_outcome(outcome, &label)
     }
 
@@ -244,6 +441,9 @@ impl Runner {
         outcome: AutoSkillOutcome,
         label: &str,
     ) -> AutomationResult<bool> {
+        if outcome == AutoSkillOutcome::Fatal {
+            return Ok(false);
+        }
         if outcome != AutoSkillOutcome::Blocked {
             return Ok(true);
         }
@@ -273,12 +473,12 @@ impl Runner {
         if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
             return Ok(false);
         }
-        thread::sleep(ACTION_DELAY);
+        thread::sleep(ACTION_DELAY + EQUIPMENT_PANEL_OPEN_EXTRA_WAIT);
         if !self.tap_at("Battle", pos) {
             return Ok(false);
         }
         thread::sleep(SKILL_TAP_DELAY);
-        let outcome = self.finish_auto_skill(None, &label)?;
+        let outcome = self.finish_auto_skill(None, &label, "")?;
         if outcome != AutoSkillOutcome::Used {
             // A skill that never activated leaves the mystic-code panel open;
             // tapping the panel button again restores the Battle HUD.
@@ -294,6 +494,7 @@ impl Runner {
         &mut self,
         owner_slot: Option<usize>,
         label: &str,
+        label_text: &str,
     ) -> AutomationResult<AutoSkillOutcome> {
         let start = Instant::now();
         loop {
@@ -309,7 +510,15 @@ impl Runner {
                     thread::sleep(ACTION_DELAY);
                 }
                 AutoSkillReaction::AlreadyUsed => {
-                    self.emit("Battle", &format!("{label}：技能已使用或冷却中，跳过"));
+                    let detail = if label_text.is_empty() {
+                        String::new()
+                    } else {
+                        format!("（右下角 OCR：{label_text:?}）")
+                    };
+                    self.emit(
+                        "Battle",
+                        &format!("{label}：技能已使用或冷却中，跳过{detail}"),
+                    );
                     let _ = self.tap_skip_animation_button("技能已使用弹窗，跳过该技能");
                     thread::sleep(ACTION_DELAY);
                     return Ok(AutoSkillOutcome::Skipped);
@@ -325,11 +534,48 @@ impl Runner {
                         AutoSkillOutcome::Blocked
                     });
                 }
-                AutoSkillReaction::AnimationStarted => {
-                    if !self.wait_for_attack_button(BATTLE_SCREEN, AUTO_SKILL_WAIT_TIMEOUT)? {
-                        self.emit_warn("Battle", "自动战斗：技能动画后等待攻击按钮超时");
+                AutoSkillReaction::StatusPopup(point) => {
+                    self.emit(
+                        "Battle",
+                        &format!("{label}：技能位打开了从者状态弹层，关闭并跳过"),
+                    );
+                    if !self.tap_at("Battle", point) {
+                        return Ok(AutoSkillOutcome::Skipped);
                     }
-                    return Ok(AutoSkillOutcome::Used);
+                    thread::sleep(ACTION_DELAY);
+                    if !self.wait_for_attack_button(BATTLE_SCREEN, Duration::from_secs(5))? {
+                        if self.recover_from_auto_skill_detail()? {
+                            return Ok(AutoSkillOutcome::Skipped);
+                        }
+                        self.fail_action(
+                            "Battle",
+                            "自动战斗技能",
+                            format!("{label} 状态弹层关闭后未回到战斗界面"),
+                        );
+                        return Ok(AutoSkillOutcome::Fatal);
+                    }
+                    return Ok(AutoSkillOutcome::Skipped);
+                }
+                AutoSkillReaction::AnimationStarted => {
+                    if self.wait_for_attack_button(BATTLE_SCREEN, AUTO_SKILL_WAIT_TIMEOUT)? {
+                        return Ok(AutoSkillOutcome::Used);
+                    }
+                    // A tap on an empty slot opens the servant detail screen
+                    // instead of starting an animation. Return to the battle
+                    // HUD instead of tapping blind and getting stuck.
+                    if self.recover_from_auto_skill_detail()? {
+                        self.emit_warn(
+                            "Battle",
+                            &format!("{label}：技能位打开了其他界面，已返回战斗"),
+                        );
+                        return Ok(AutoSkillOutcome::Skipped);
+                    }
+                    self.fail_action(
+                        "Battle",
+                        "自动战斗技能",
+                        format!("{label} 后未回到战斗界面，无法恢复"),
+                    );
+                    return Ok(AutoSkillOutcome::Fatal);
                 }
                 AutoSkillReaction::None => {
                     if start.elapsed() >= AUTO_SKILL_REACTION_TIMEOUT {
@@ -401,6 +647,28 @@ impl Runner {
             }
         };
         if !attack_visible && !menu_visible {
+            // The HUD is hidden: either a skill animation started or an
+            // empty slot opened the servant-status popup. The popup carries
+            // the shared close button in the top-right corner.
+            let status_close = self
+                .sidecar()
+                .find_element(
+                    None,
+                    SKILL_SELECTION_CLOSE_BUTTON_TEMPLATE,
+                    AUTO_STATUS_CLOSE_REGION,
+                    AUTO_STATUS_CLOSE_THRESHOLD,
+                )
+                .recoverable()?;
+            match status_close {
+                Ok(Some(point)) => return Ok(AutoSkillReaction::StatusPopup(point)),
+                Ok(None) => {}
+                Err(error) => {
+                    self.emit_debug(
+                        "Battle",
+                        &format!("自动战斗：状态弹层关闭按钮探测失败：{error}"),
+                    );
+                }
+            }
             return Ok(AutoSkillReaction::AnimationStarted);
         }
         Ok(AutoSkillReaction::None)
@@ -445,6 +713,25 @@ impl Runner {
             thread::sleep(AUTO_TARGET_SETTLE);
         }
         Ok(!self.auto_target_picker_visible()?)
+    }
+
+    /// Close the servant-detail screen opened by tapping an empty skill slot.
+    /// Tries the common back/close corners and reports whether the battle HUD
+    /// came back.
+    fn recover_from_auto_skill_detail(&mut self) -> AutomationResult<bool> {
+        for point in [Point::new(0.05, 0.05), Point::new(0.95, 0.05)] {
+            if self.is_cancelled() {
+                return Ok(false);
+            }
+            if !self.tap_at("Battle", point) {
+                return Ok(false);
+            }
+            thread::sleep(ACTION_DELAY);
+            if self.wait_for_attack_button(BATTLE_SCREEN, Duration::from_secs(5))? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn auto_target_picker_visible(&mut self) -> AutomationResult<bool> {
@@ -588,6 +875,54 @@ mod tests {
         let mut turn = empty_turn();
         turn.attack_mode = AttackMode::Critical;
         assert!(battle_turn_has_manual_config(&turn));
+    }
+
+    #[test]
+    fn presence_response_requires_every_slot() {
+        let complete = serde_json::json!({
+            "slots": (0..9).map(|index| serde_json::json!({
+                "index": index,
+                "present": index != 5,
+            })).collect::<Vec<_>>()
+        });
+        let present = Runner::skill_presence_from_response(&complete).unwrap();
+        assert_eq!(present[5], false);
+        assert_eq!(present.iter().filter(|present| **present).count(), 8);
+
+        let partial = serde_json::json!({"slots": [{"index": 0, "present": true}]});
+        assert!(Runner::skill_presence_from_response(&partial).is_none());
+
+        assert!(Runner::skill_presence_from_response(&serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn cooldown_corner_boxes_cover_the_right_bottom_of_each_skill() {
+        for servant in 0..3 {
+            for skill in 0..3 {
+                let region = skill_cooldown_corner_region(servant, skill);
+                let center_x = SERVANT_SKILLS[servant][skill].x;
+                // Overlaps the right half of the icon and stays inside the
+                // gap before the next button.
+                assert!(region.x < center_x);
+                assert!(region.x + region.w > center_x + 0.025);
+                assert!(region.x + region.w < center_x + 0.069);
+                assert!(region.y + region.h < 0.88);
+                // Wide enough for a two-digit number without reaching the
+                // neighbouring button's label.
+                assert!(region.w >= 0.036);
+            }
+        }
+    }
+
+    #[test]
+    fn only_short_digit_texts_mark_cooldown() {
+        assert!(cooldown_text_present("2"));
+        assert!(cooldown_text_present("15"));
+        assert!(cooldown_text_present(" 3 "));
+        assert!(!cooldown_text_present(""));
+        assert!(!cooldown_text_present("剩余"));
+        assert!(!cooldown_text_present("1234"));
+        assert!(!cooldown_text_present("X 乙 剩余"));
     }
 
     #[test]

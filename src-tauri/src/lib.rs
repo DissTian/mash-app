@@ -310,6 +310,7 @@ pub fn run() {
             commands::debug::debug_find_enhancement_servant,
             commands::debug::debug_find_attack_button,
             commands::debug::debug_read_battle_scene,
+            commands::debug::debug_find_skill_slots,
             commands::debug::debug_find_supports,
             commands::debug::flow_trace_start,
             commands::debug::flow_trace_stop,

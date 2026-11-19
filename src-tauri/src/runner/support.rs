@@ -12,6 +12,12 @@ pub(crate) fn is_unknown_element_error(err: &str, screen: &str, element: &str) -
 
 pub(crate) const POLL_INTERVAL: Duration = Duration::from_millis(500);
 pub(crate) const ACTION_DELAY: Duration = Duration::from_millis(300);
+
+/// The mystic-code panel fades in after the equipment button responds, and a
+/// later skill icon (second/third) can appear slightly after the panel opens.
+/// Wait this much longer than `ACTION_DELAY` before tapping an equipment
+/// skill so the tap cannot land while the icon is still missing.
+pub(crate) const EQUIPMENT_PANEL_OPEN_EXTRA_WAIT: Duration = Duration::from_millis(200);
 pub(crate) const SKILL_TAP_DELAY: Duration = Duration::from_millis(500);
 
 /// Hard cap on friend-list refreshes inside `handle_support_select`. After

@@ -423,6 +423,17 @@ impl SidecarClient {
         image_path: Option<&Path>,
         region: NormRect,
     ) -> Result<OcrRegionResult, CvError> {
+        self.ocr_region_with_scale(image_path, region, 1.0)
+    }
+
+    /// OCR a region after upscaling it by ``scale`` before recognition. Small
+    /// UI labels (cooldown numbers) recognize materially better this way.
+    pub fn ocr_region_with_scale(
+        &mut self,
+        image_path: Option<&Path>,
+        region: NormRect,
+        scale: f64,
+    ) -> Result<OcrRegionResult, CvError> {
         let mut req = request(
             SidecarCommand::OcrRegion,
             serde_json::json!({
@@ -432,6 +443,7 @@ impl SidecarClient {
                     "w": region.w,
                     "h": region.h,
                 },
+                "scale": scale,
             }),
         )?;
         Self::add_image_path(&mut req, image_path);

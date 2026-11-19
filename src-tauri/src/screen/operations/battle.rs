@@ -232,6 +232,49 @@ impl SidecarClient {
     /// NMS, the chosen split + best gap, and a `failReason` enum). Used
     /// only by the `debug_read_battle_scene` Tauri command — the runner
     /// stays on the lean variant.
+    /// Detect which of the nine front-line skill buttons exist in the skill
+    /// bar by scanning each button's white top frame edge. Empty (locked)
+    /// slots show the battle background instead. Used by the CV debug tool
+    /// first; the battle runner can consume it once validated.
+    pub fn find_skill_slots(
+        &mut self,
+        image_path: Option<&Path>,
+        points: &[Point],
+        region: NormRect,
+        threshold: f64,
+        min_fraction: f64,
+    ) -> Result<serde_json::Value, CvError> {
+        let mut req = request(
+            SidecarCommand::FindSkillSlots,
+            serde_json::json!({
+                "points": points
+                    .iter()
+                    .map(|point| serde_json::json!({"x": point.x, "y": point.y}))
+                    .collect::<Vec<_>>(),
+                "region": {
+                    "x": region.x,
+                    "y": region.y,
+                    "w": region.w,
+                    "h": region.h,
+                },
+                "threshold": threshold,
+                "minFraction": min_fraction,
+            }),
+        )?;
+        Self::add_image_path(&mut req, image_path);
+        let resp = self.send_recv(&req)?;
+        if let Some(err) = resp.get("error").and_then(|value| value.as_str()) {
+            if resp
+                .get("slots")
+                .and_then(|value| value.as_array())
+                .is_none()
+            {
+                return Err(CvError::Other(err.to_string()));
+            }
+        }
+        Ok(resp)
+    }
+
     pub fn read_battle_scene_debug(
         &mut self,
         image_path: Option<&Path>,

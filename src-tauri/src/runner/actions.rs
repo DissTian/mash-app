@@ -201,7 +201,7 @@ impl Runner {
                     if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
                         return Ok(self.fail_skill_execution(&action_label, "打开御主技能面板失败"));
                     }
-                    thread::sleep(ACTION_DELAY);
+                    thread::sleep(ACTION_DELAY + EQUIPMENT_PANEL_OPEN_EXTRA_WAIT);
 
                     self.emit_action(
                         "御主技能",

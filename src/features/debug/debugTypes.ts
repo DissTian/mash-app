@@ -246,6 +246,21 @@ export interface AttackButtonResultDto {
   matchRegion: NormRectDto | null;
 }
 
+export interface DebugSkillSlotDto {
+  index: number;
+  present: boolean;
+  region: NormRectDto | null;
+  score: number;
+  borderY?: number | null;
+}
+
+export interface DebugSkillSlotsResultDto {
+  region: NormRectDto;
+  threshold: number;
+  minFraction: number;
+  slots: DebugSkillSlotDto[];
+}
+
 export interface BattleSceneResultDto {
   region: NormRectDto;
   scene: number | null;
