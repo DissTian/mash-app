@@ -254,6 +254,7 @@ export function DebugPage({
   const [cooldownSection, setCooldownSection] = useState<"servant" | "equipment">(
     "servant"
   );
+  const [requireCooldownLabel, setRequireCooldownLabel] = useState(true);
   const [cooldownMode, setCooldownMode] = useState<"det" | "rec">("det");
   const [supportServantId, setSupportServantId] = useState<number | null>(
     asNumberOrNull(initialPrefs.supportServantId)
@@ -623,6 +624,8 @@ export function DebugPage({
         setAttackButton(null);
         setSupportResult(null);
         setEnhancementServantResult(null);
+        setSkillSlots(null);
+        setSkillCooldowns(null);
       }
       if (options.clearOverlays) {
         pushHistory({
@@ -645,6 +648,35 @@ export function DebugPage({
     },
     [log, pushHistory, screenNames]
   );
+
+  const handlePickImage = useCallback(async () => {
+    log("调用 debug_pick_image…");
+    try {
+      const result = await invoke<DebugCaptureResult | null>("debug_pick_image");
+      if (!result) {
+        log("已取消载入截图");
+        return;
+      }
+      setCapture(result);
+      setLiveFrame(null);
+      setCacheBuster(Date.now());
+      setProbes([]);
+      setCommandCards([]);
+      setNpGaugeSlots([]);
+      setBattleScene(null);
+      setAttackButton(null);
+      setSkillSlots(null);
+      setSkillCooldowns(null);
+      pushHistory({
+        label: "载入截图",
+        summary: result.imagePath,
+        ok: true,
+      });
+      log(`已载入截图 | ${result.imagePath}`);
+    } catch (err) {
+      log(`debug_pick_image 失败: ${err}`, "error");
+    }
+  }, [log, pushHistory]);
 
   const handleCapture = useCallback(async () => {
     setCapturing(true);
@@ -1291,6 +1323,7 @@ export function DebugPage({
           cornerH: Number(cooldownCornerH),
           scale: Number(cooldownScale),
           minConfidence: Number(cooldownMinConfidence),
+          requireLabel: requireCooldownLabel,
         })
       );
       setSkillCooldowns(result);
@@ -1315,10 +1348,13 @@ export function DebugPage({
         summary: `${cooling}/${result.slots.length} 冷却 · ${result.elapsedMs.toFixed(0)}ms`,
         ok: true,
       });
+      const labelHits = result.slots.filter((slot) => slot.labelMatched).length;
       log(
         `技能冷却: ${cooling}/${result.slots.length} · ${result.elapsedMs.toFixed(
           0
-        )}ms · ${result.slots.map((slot) => slot.text || "—").join(" | ")}`
+        )}ms · 剩余命中 ${labelHits} · ${result.slots
+          .map((slot) => slot.text || "—")
+          .join(" | ")}`
       );
     } catch (err) {
       log(`debug_find_skill_cooldowns 失败: ${err}`, "error");
@@ -1337,6 +1373,7 @@ export function DebugPage({
     cooldownMinConfidence,
     cooldownSection,
     cooldownMode,
+    requireCooldownLabel,
   ]);
 
   const handleUseAllAvailableIds = useCallback(() => {
@@ -2010,6 +2047,16 @@ export function DebugPage({
             <Button
               type="button"
               size="1"
+              variant="surface"
+              onClick={handlePickImage}
+              title="从磁盘载入一张截图，所有 CV 工具都会使用它"
+            >
+              载入截图
+            </Button>
+
+            <Button
+              type="button"
+              size="1"
               variant={streamStatus?.connected ? "solid" : "soft"}
               color={streamStatus?.connected ? "green" : "gray"}
               disabled={connectingStream || disconnectingStream}
@@ -2420,6 +2467,7 @@ export function DebugPage({
                   <Text size="1" color="gray">
                     耗时 {skillCooldowns.elapsedMs.toFixed(0)}ms · 模式{" "}
                     {skillCooldowns.mode === "rec" ? "纯识别" : "检测+识别"} ·
+                    剩余确认 {skillCooldowns.requireLabel ? "开" : "关"} ·
                     偏移 dx {skillCooldowns.cornerDx} · dy{" "}
                     {skillCooldowns.cornerDy} · 尺寸 {skillCooldowns.cornerW}×
                     {skillCooldowns.cornerH} · 放大 {skillCooldowns.scale} ·
@@ -2651,6 +2699,15 @@ export function DebugPage({
                   <Select.Item value="equipment">御主礼装技能</Select.Item>
                 </Select.Content>
               </Select.Root>
+              <label className="debug-coord-toggle" title="只有同时识别到「剩余/残り」文字才判冷却">
+                <Checkbox
+                  checked={requireCooldownLabel}
+                  onCheckedChange={(checked) =>
+                    setRequireCooldownLabel(checked === true)
+                  }
+                />
+                <Text size="1">需要剩余确认</Text>
+              </label>
               <Select.Root
                 value={cooldownMode}
                 onValueChange={(value) =>

@@ -132,6 +132,13 @@ pub(crate) const SKILL_COOLDOWN_CORNER_DY: f64 = 0.009;
 pub(crate) const SKILL_COOLDOWN_CORNER_WIDTH: f64 = 0.015;
 pub(crate) const SKILL_COOLDOWN_CORNER_HEIGHT: f64 = 0.040;
 
+/// Label strip left of the cooldown digit. Cooling skills show "剩余"/"残り"
+/// here; ready skills do not, so it filters icon-art false positives.
+pub(crate) const SKILL_COOLDOWN_LABEL_DX: f64 = -0.032;
+pub(crate) const SKILL_COOLDOWN_LABEL_DY: f64 = 0.028;
+pub(crate) const SKILL_COOLDOWN_LABEL_WIDTH: f64 = 0.032;
+pub(crate) const SKILL_COOLDOWN_LABEL_HEIGHT: f64 = 0.036;
+
 /// Ally target positions for skill targeting (servant_1, servant_2, servant_3)
 pub(crate) const SKILL_TARGETS: [Point; 3] = [
     Point::new(0.254, 0.474),

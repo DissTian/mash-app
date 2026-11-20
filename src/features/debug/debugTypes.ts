@@ -265,7 +265,9 @@ export interface DebugSkillCooldownSlotDto {
   index: number;
   region: NormRectDto;
   text: string;
+  labelText: string;
   numeric: boolean;
+  labelMatched: boolean;
   cooling: boolean;
   elapsedMs: number;
 }
@@ -279,6 +281,7 @@ export interface DebugSkillCooldownsResultDto {
   cornerH: number;
   scale: number;
   minConfidence: number;
+  requireLabel: boolean;
   elapsedMs: number;
   slots: DebugSkillCooldownSlotDto[];
 }

@@ -1,4 +1,32 @@
 use super::*;
+use tauri_plugin_dialog::DialogExt;
+
+/// Load a screenshot from disk and make it the current debug frame, so every
+/// CV tool can be tested without re-opening the in-game screen.
+#[tauri::command]
+pub async fn debug_pick_image(app: tauri::AppHandle) -> Result<Option<DebugCaptureResult>, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("图片", &["png", "jpg", "jpeg", "webp"])
+        .set_title("载入调试截图")
+        .blocking_pick_file();
+    let Some(file) = picked else {
+        return Ok(None);
+    };
+    let source = file.into_path().map_err(|error| error.to_string())?;
+    let dest = debug_image_path(&app);
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| format!("创建调试目录失败: {error}"))?;
+    }
+    std::fs::copy(&source, &dest).map_err(|error| format!("复制截图失败: {error}"))?;
+    Ok(Some(DebugCaptureResult {
+        image_path: dest.to_string_lossy().into_owned(),
+        screen: "载入".to_string(),
+        score: 0.0,
+        screen_size: None,
+    }))
+}
 
 #[tauri::command]
 pub fn debug_capture(

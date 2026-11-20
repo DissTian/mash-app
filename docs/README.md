@@ -20,7 +20,7 @@
 | 从者强化 | [状态机与模板映射](state-machines/enhancement-automation.md) |
 | 礼装强化 | [状态机与丸子策略](state-machines/craft-essence-enhancement-automation.md) |
 | 友情点召唤 | [状态机](state-machines/friend-point-summon-automation.md) |
-| 战斗识别 | [场景检测](battle-scene-detection.md)、[宝具就绪检测](np-readiness-detection.md) |
+| 战斗识别 | [场景检测](battle-scene-detection.md)、[宝具就绪检测](np-readiness-detection.md)、[技能冷却图标扫描报告](cooldown-icon-scan-report.md) |
 | 异常处理 | [Fallback 注册表](fallbacks.md) |
 
 ## 发布维护

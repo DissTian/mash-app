@@ -283,9 +283,12 @@ pub struct DebugSkillCooldownSlot {
     pub index: usize,
     pub region: NormRect,
     pub text: String,
-    /// True only when the recognized text is entirely digits. A stray letter
-    /// such as ``J`` must not count as a cooldown number.
+    /// Text recognized to the left of the digit ("剩余"/"残り" only exists
+    /// while the skill is cooling).
+    pub label_text: String,
+    /// True only when the recognized digit text is entirely digits.
     pub numeric: bool,
+    pub label_matched: bool,
     pub cooling: bool,
     pub elapsed_ms: f64,
 }
@@ -301,8 +304,14 @@ pub struct DebugSkillCooldownsResult {
     pub corner_h: f64,
     pub scale: f64,
     pub min_confidence: f64,
+    pub require_label: bool,
     pub elapsed_ms: f64,
     pub slots: Vec<DebugSkillCooldownSlot>,
+}
+
+fn cooldown_label_matches(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.contains("剩余") || trimmed.contains("残")
 }
 
 fn cooldown_text_is_numeric(text: &str) -> bool {
@@ -324,6 +333,7 @@ pub fn debug_find_skill_cooldowns(
     corner_h: f64,
     scale: f64,
     min_confidence: f64,
+    require_label: bool,
     server_state: tauri::State<'_, Mutex<Server>>,
     debug_state: tauri::State<'_, DebugSidecar>,
     handle_state: tauri::State<'_, Mutex<RunnerHandle>>,
@@ -371,6 +381,24 @@ pub fn debug_find_skill_cooldowns(
         })
         .collect();
 
+    let label_regions: Vec<NormRect> = points
+        .iter()
+        .map(|point| {
+            let width = crate::runner::SKILL_COOLDOWN_LABEL_WIDTH.clamp(0.001, 0.2);
+            let height = crate::runner::SKILL_COOLDOWN_LABEL_HEIGHT.clamp(0.001, 0.2);
+            let left = (point.x + crate::runner::SKILL_COOLDOWN_LABEL_DX)
+                .clamp(0.0, (1.0 - width).max(0.0));
+            let top = (point.y + crate::runner::SKILL_COOLDOWN_LABEL_DY)
+                .clamp(0.0, (1.0 - height).max(0.0));
+            NormRect {
+                x: left,
+                y: top,
+                w: width,
+                h: height,
+            }
+        })
+        .collect();
+
     let mut guard = debug_state.0.lock().unwrap();
     let client = guard
         .as_mut()
@@ -381,26 +409,40 @@ pub fn debug_find_skill_cooldowns(
 
     if mode == "rec" {
         // Recognition-only batch: one sidecar round trip for all crops.
+        // Digits + labels in one recognition batch: one sidecar round trip.
+        let mut combined_regions = corner_regions.clone();
+        combined_regions.extend(label_regions.iter().copied());
         let texts = client
-            .recognize_strips(Some(&image_path), &corner_regions)
+            .recognize_strips(Some(&image_path), &combined_regions)
             .map_err(|error| format!("纯识别失败: {error}"))?;
+        let split_at = corner_regions.len();
         let total_ms = started.elapsed().as_secs_f64() * 1000.0;
         for (index, region) in corner_regions.into_iter().enumerate() {
             let text = texts
                 .get(index)
                 .map(|text| text.trim().to_string())
                 .unwrap_or_default();
+            let label_text = texts
+                .get(split_at + index)
+                .map(|text| text.trim().to_string())
+                .unwrap_or_default();
             let numeric = cooldown_text_is_numeric(&text);
+            let label_matched = cooldown_label_matches(&label_text);
             slots.push(DebugSkillCooldownSlot {
                 index,
                 region,
                 text,
+                label_text,
                 numeric,
-                cooling: numeric,
+                label_matched,
+                cooling: numeric && (!require_label || label_matched),
                 elapsed_ms: total_ms / points.len().max(1) as f64,
             });
         }
     } else {
+        let label_texts = client
+            .recognize_strips(Some(&image_path), &label_regions)
+            .map_err(|error| format!("剩余文字识别失败: {error}"))?;
         for (index, region) in corner_regions.into_iter().enumerate() {
             let slot_started = Instant::now();
             let result = client
@@ -421,12 +463,19 @@ pub fn debug_find_skill_cooldowns(
                 }
                 texts.push(text.to_string());
             }
+            let label_text = label_texts
+                .get(index)
+                .map(|text| text.trim().to_string())
+                .unwrap_or_default();
+            let label_matched = cooldown_label_matches(&label_text);
             slots.push(DebugSkillCooldownSlot {
                 index,
                 region,
                 text: texts.join(" "),
+                label_text,
                 numeric,
-                cooling: numeric,
+                label_matched,
+                cooling: numeric && (!require_label || label_matched),
                 elapsed_ms: slot_started.elapsed().as_secs_f64() * 1000.0,
             });
         }
@@ -441,6 +490,7 @@ pub fn debug_find_skill_cooldowns(
         corner_h,
         scale,
         min_confidence,
+        require_label,
         elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
         slots,
     })

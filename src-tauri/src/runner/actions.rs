@@ -752,9 +752,17 @@ impl Runner {
         if self.handle_pending_skill_use_dialog_before_skip()? {
             return Ok(());
         }
-        let _ = self.tap_skip_animation_button("普通技能后跳过");
+        self.tap_skill_animation_skip_twice("普通技能后跳过");
         thread::sleep(ACTION_DELAY);
         Ok(())
+    }
+
+    /// Tap the in-game skip/turn-counter pill, wait one second, then tap it
+    /// again. The second tap catches cut-ins that start after the first one.
+    pub(crate) fn tap_skill_animation_skip_twice(&mut self, reason: &str) {
+        let _ = self.tap_skip_animation_button(reason);
+        thread::sleep(Duration::from_secs(1));
+        let _ = self.tap_skip_animation_button(&format!("{reason}（第二次）"));
     }
 
     fn handle_pending_skill_use_dialog_before_skip(&mut self) -> AutomationResult<bool> {

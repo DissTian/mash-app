@@ -101,11 +101,56 @@ fn cooldown_corner_around(point: Point) -> NormRect {
     }
 }
 
+pub(crate) fn skill_cooldown_label_region(servant_slot: usize, skill_slot: usize) -> NormRect {
+    cooldown_label_around(SERVANT_SKILLS[servant_slot.min(2)][skill_slot.min(2)])
+}
+
+pub(crate) fn equipment_cooldown_label_region(skill_slot: usize) -> NormRect {
+    cooldown_label_around(EQUIPMENT_SKILLS[skill_slot.min(2)])
+}
+
+fn cooldown_label_around(point: Point) -> NormRect {
+    NormRect {
+        x: point.x + SKILL_COOLDOWN_LABEL_DX,
+        y: point.y + SKILL_COOLDOWN_LABEL_DY,
+        w: SKILL_COOLDOWN_LABEL_WIDTH,
+        h: SKILL_COOLDOWN_LABEL_HEIGHT,
+    }
+}
+
 /// A cooldown crop is judged cooling only when the recognized text is entirely
 /// digits. Stray letters (``J``) and the CN/JP label word must never count.
 pub(crate) fn cooldown_text_present(text: &str) -> bool {
     let trimmed = text.trim();
     !trimmed.is_empty() && trimmed.chars().all(|character| character.is_numeric())
+}
+
+/// The label strip only contains "剩余"/"残り" while the skill is cooling.
+pub(crate) fn cooldown_label_present(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.contains("剩余") || trimmed.contains("残")
+}
+
+/// A slot counts as cooling only when BOTH the digit crop is pure-numeric and
+/// the label strip shows the cooldown word. The label filters icon-art arrows
+/// that happen to be read as digits.
+pub(crate) fn cooldown_is_cooling(digit_text: &str, label_text: &str) -> bool {
+    cooldown_text_present(digit_text) && cooldown_label_present(label_text)
+}
+
+/// Map the three recognition-only texts to mystic-code readiness flags.
+/// Missing/short results fall back to "ready" for the remaining slots.
+pub(crate) fn equipment_readiness_from_texts(
+    digit_texts: &[String],
+    label_texts: &[String],
+) -> [bool; 3] {
+    let mut ready = [true; 3];
+    for index in 0..3 {
+        let digit = digit_texts.get(index).map(String::as_str).unwrap_or("");
+        let label = label_texts.get(index).map(String::as_str).unwrap_or("");
+        ready[index] = !cooldown_is_cooling(digit, label);
+    }
+    ready
 }
 
 /// Whether one normal-mode turn actually carries manual commands. A default
@@ -181,12 +226,16 @@ impl Runner {
         &mut self,
         plan: &[(usize, usize)],
     ) -> AutomationResult<Option<[bool; 9]>> {
-        let regions: Vec<NormRect> = plan
+        let mut regions: Vec<NormRect> = plan
             .iter()
             .map(|&(servant_slot, skill_slot)| {
                 skill_cooldown_corner_region(servant_slot, skill_slot)
             })
             .collect();
+        let digit_count = regions.len();
+        regions.extend(plan.iter().map(|&(servant_slot, skill_slot)| {
+            skill_cooldown_label_region(servant_slot, skill_slot)
+        }));
         let texts = match self
             .sidecar()
             .recognize_strips(None, &regions)
@@ -215,17 +264,22 @@ impl Runner {
         for (position, &(servant_slot, skill_slot)) in plan.iter().enumerate() {
             let index = servant_slot * 3 + skill_slot;
             let text = texts.get(position).map(String::as_str).unwrap_or("");
+            let label = texts
+                .get(digit_count + position)
+                .map(String::as_str)
+                .unwrap_or("");
             self.auto_skill_label_texts[index] = text.trim().to_string();
             self.emit_local_debug(
                 "Battle",
                 &format!(
-                    "自动战斗：从者 {} 技能 {} 右下角 OCR {:?}",
+                    "自动战斗：从者 {} 技能 {} 右下角 OCR {:?} 剩余 {:?}",
                     servant_slot + 1,
                     skill_slot + 1,
-                    text
+                    text,
+                    label
                 ),
             );
-            if cooldown_text_present(text) {
+            if cooldown_is_cooling(text, label) {
                 ready[index] = false;
                 cooling.push(format!("从者{}技能{}", servant_slot + 1, skill_slot + 1));
             }
@@ -294,16 +348,14 @@ impl Runner {
         Some(present)
     }
 
-    /// Read one mystic-code skill's cooldown corner while the panel is open.
-    /// `None` means the probe failed and the caller should just tap it.
-    fn read_auto_equipment_skill_ready(
-        &mut self,
-        skill_slot: usize,
-    ) -> AutomationResult<Option<bool>> {
-        let region = equipment_cooldown_corner_region(skill_slot);
+    /// Batch-read all three mystic-code skill corners while the panel is open.
+    /// `None` means the probe failed and the caller should try every skill.
+    fn read_auto_equipment_readiness(&mut self) -> AutomationResult<Option<[bool; 3]>> {
+        let mut regions: Vec<NormRect> = (0..3).map(equipment_cooldown_corner_region).collect();
+        regions.extend((0..3).map(equipment_cooldown_label_region));
         let texts = match self
             .sidecar()
-            .recognize_strips(None, &[region])
+            .recognize_strips(None, &regions)
             .recoverable()
         {
             Ok(Ok(texts)) => texts,
@@ -315,8 +367,16 @@ impl Runner {
                 return Ok(None);
             }
         };
-        let text = texts.first().map(String::as_str).unwrap_or("");
-        Ok(Some(!cooldown_text_present(text)))
+        let (digits, labels) = texts.split_at(texts.len().min(3));
+        let ready = equipment_readiness_from_texts(digits, labels);
+        let cooling = ready.iter().filter(|ready| !**ready).count();
+        if cooling > 0 {
+            self.emit(
+                "Battle",
+                &format!("自动战斗：御主礼装技能冷却 {cooling}/3，只使用就绪的"),
+            );
+        }
+        Ok(Some(ready))
     }
 
     /// Read which front-line skill slots exist on the live Battle frame.
@@ -420,13 +480,8 @@ impl Runner {
                 return Ok(false);
             }
         }
-        for skill_slot in equipment {
-            if self.is_cancelled() {
-                return Ok(false);
-            }
-            if !self.execute_auto_equipment_skill(skill_slot)? {
-                return Ok(false);
-            }
+        if !self.execute_auto_equipment_skills(&equipment)? {
+            return Ok(false);
         }
 
         if !self.wait_for_attack_button(BATTLE_SCREEN, AUTO_SKILL_WAIT_TIMEOUT)? {
@@ -490,33 +545,83 @@ impl Runner {
         Ok(true)
     }
 
+    /// Execute all planned mystic-code skills. In `readyOnly` the panel is
+    /// opened **once** to batch-read all three cooldowns, then only ready
+    /// skills are tapped; further taps reopen the panel only when needed.
+    fn execute_auto_equipment_skills(&mut self, skills: &[usize]) -> AutomationResult<bool> {
+        if skills.is_empty() {
+            return Ok(true);
+        }
+        let ready_only = self
+            .auto_battle
+            .as_ref()
+            .is_some_and(|strategy| strategy.skill.mode == SkillUseMode::ReadyOnly);
+        if !ready_only {
+            for &skill_slot in skills {
+                if !self.execute_auto_equipment_skill(skill_slot)? {
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
+
+        if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
+            return Ok(false);
+        }
+        thread::sleep(ACTION_DELAY + EQUIPMENT_PANEL_OPEN_EXTRA_WAIT);
+        let readiness = self.read_auto_equipment_readiness()?;
+        let ready: Vec<usize> = match &readiness {
+            Some(flags) => skills
+                .iter()
+                .copied()
+                .filter(|skill_slot| flags[(*skill_slot).min(2)])
+                .collect(),
+            None => skills.to_vec(),
+        };
+        if ready.is_empty() {
+            self.emit("Battle", "自动战斗：御主礼装技能全部冷却中，关闭面板");
+            if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
+                return Ok(false);
+            }
+            thread::sleep(ACTION_DELAY);
+            return Ok(true);
+        }
+
+        // The panel opened for the probe is reused for the first ready skill.
+        let mut panel_open = true;
+        for &skill_slot in &ready {
+            if !panel_open {
+                if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
+                    return Ok(false);
+                }
+                thread::sleep(ACTION_DELAY + EQUIPMENT_PANEL_OPEN_EXTRA_WAIT);
+            }
+            if !self.tap_auto_equipment_skill(skill_slot)? {
+                return Ok(false);
+            }
+            // A successful skill closes the panel; the next ready skill needs
+            // a fresh panel.
+            panel_open = false;
+        }
+        Ok(true)
+    }
+
     fn execute_auto_equipment_skill(&mut self, skill_slot: usize) -> AutomationResult<bool> {
+        if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
+            return Ok(false);
+        }
+        thread::sleep(ACTION_DELAY + EQUIPMENT_PANEL_OPEN_EXTRA_WAIT);
+        self.tap_auto_equipment_skill(skill_slot)
+    }
+
+    /// Tap one equipment skill while its panel is already open.
+    fn tap_auto_equipment_skill(&mut self, skill_slot: usize) -> AutomationResult<bool> {
         let skill = format!("skill_{}", skill_slot + 1);
         let Some(pos) = equipment_skill_position(Some(&skill)) else {
             return Ok(true);
         };
         let label = format!("自动战斗：御主礼装技能 {}", skill_slot + 1);
         self.emit("Battle", &label);
-        if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
-            return Ok(false);
-        }
-        thread::sleep(ACTION_DELAY + EQUIPMENT_PANEL_OPEN_EXTRA_WAIT);
-        if self
-            .auto_battle
-            .as_ref()
-            .is_some_and(|strategy| strategy.skill.mode == SkillUseMode::ReadyOnly)
-        {
-            if let Some(ready) = self.read_auto_equipment_skill_ready(skill_slot)? {
-                if !ready {
-                    self.emit("Battle", &format!("{label}：冷却中，跳过"));
-                    if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
-                        return Ok(false);
-                    }
-                    thread::sleep(ACTION_DELAY);
-                    return Ok(true);
-                }
-            }
-        }
         if !self.tap_at("Battle", pos) {
             return Ok(false);
         }
@@ -568,6 +673,9 @@ impl Runner {
                 }
                 AutoSkillReaction::TargetPicker(close_point) => {
                     let resolved = self.pick_auto_skill_target(owner_slot, close_point)?;
+                    if resolved {
+                        self.tap_skill_animation_skip_twice("自动战斗技能后加速");
+                    }
                     if !self.wait_for_attack_button(BATTLE_SCREEN, AUTO_SKILL_WAIT_TIMEOUT)? {
                         self.emit_warn("Battle", "自动战斗：技能目标后等待攻击按钮超时");
                     }
@@ -600,6 +708,10 @@ impl Runner {
                     return Ok(AutoSkillOutcome::Skipped);
                 }
                 AutoSkillReaction::AnimationStarted => {
+                    // Speed up the skill cut-in: tap the turn-counter/skip pill
+                    // once, wait a second, then tap again before waiting for the
+                    // battle HUD to return.
+                    self.tap_skill_animation_skip_twice("自动战斗技能后加速");
                     if self.wait_for_attack_button(BATTLE_SCREEN, AUTO_SKILL_WAIT_TIMEOUT)? {
                         return Ok(AutoSkillOutcome::Used);
                     }
@@ -956,6 +1068,45 @@ mod tests {
             assert!((region.x - (point.x + SKILL_COOLDOWN_CORNER_DX)).abs() < 1e-9);
             assert!((region.y - (point.y + SKILL_COOLDOWN_CORNER_DY)).abs() < 1e-9);
         }
+    }
+
+    #[test]
+    fn equipment_readiness_requires_numeric_digit_and_label() {
+        let digits = vec!["5".to_string(), "一".to_string(), "J".to_string()];
+        let labels = vec!["剩余".to_string(), String::new(), String::new()];
+        assert_eq!(
+            equipment_readiness_from_texts(&digits, &labels),
+            [false, true, true]
+        );
+
+        let digits = vec!["5".into(), "5".into(), "2".into()];
+        let labels = vec!["剩余".into(), "残".into(), "剩余".into()];
+        assert_eq!(
+            equipment_readiness_from_texts(&digits, &labels),
+            [false, false, false]
+        );
+
+        // Icon-art digits without the label must stay ready.
+        let digits = vec!["2".into(), "2".into()];
+        let labels = vec![String::new(), String::new()];
+        assert_eq!(
+            equipment_readiness_from_texts(&digits, &labels),
+            [true, true, true]
+        );
+
+        assert_eq!(equipment_readiness_from_texts(&[], &[]), [true, true, true]);
+    }
+
+    #[test]
+    fn label_word_confirms_cooldown() {
+        assert!(cooldown_label_present("剩余"));
+        assert!(cooldown_label_present("残り"));
+        assert!(!cooldown_label_present("余"));
+        assert!(!cooldown_label_present(""));
+        assert!(cooldown_is_cooling("5", "剩余"));
+        assert!(!cooldown_is_cooling("2", "司"));
+        assert!(!cooldown_is_cooling("5", ""));
+        assert!(!cooldown_is_cooling("J", "剩余"));
     }
 
     #[test]
