@@ -76,6 +76,8 @@ stream frame is used):
                                                     ← {"score":0.81,"passed":true}
 """
 
+from __future__ import annotations
+
 import base64
 import difflib
 import hashlib
@@ -197,6 +199,42 @@ RANK_UP_QUEST_ACTIONABLE_VALUE = 105.0
 # size between client builds (roughly 0.85x of the reference capture in the
 # 2026-11 CN build). Try a few scales so the anchor keeps matching.
 RANK_UP_QUEST_ROW_ANCHOR_SCALES = (1.0, 0.95, 0.9, 0.85, 0.8, 0.75)
+
+# ---------------------------------------------------------------------------
+# Interlude quest list rows (02 list / 03-1 stage list)
+# ---------------------------------------------------------------------------
+
+INTERLUDE_COST_ANCHOR_TEMPLATE = "interlude/text_cost_label"
+INTERLUDE_QUICK_LINK_ANCHOR_TEMPLATE = "interlude/text_quick_link"
+INTERLUDE_FREE_QUEST_ANCHOR_TEMPLATE = "interlude/text_free_quest_label"
+INTERLUDE_LIST_REGION = {"x": 0.48, "y": 0.10, "w": 0.49, "h": 0.86}
+INTERLUDE_COST_ANCHOR_THRESHOLD = 0.90
+INTERLUDE_QUICK_LINK_ANCHOR_THRESHOLD = 0.90
+INTERLUDE_FREE_QUEST_ANCHOR_THRESHOLD = 0.90
+INTERLUDE_TEMPLATE_REFERENCE_WIDTH = 1920.0
+INTERLUDE_ROW_ANCHOR_SCALES = (1.0, 0.95, 0.9, 0.85)
+INTERLUDE_ACTIONABLE_LUMA = 100.0
+# Anchor-relative geometry, calibrated on the 1920x1080 CN capture.
+INTERLUDE_NORMAL_ROW = {
+    "rowX": -0.080,
+    "rowY": -0.100,
+    "rowW": 0.470,
+    "rowH": 0.200,
+    "titleX": -0.002,
+    "titleY": -0.062,
+    "titleW": 0.205,
+    "titleH": 0.034,
+}
+INTERLUDE_QUICK_ROW = {
+    "rowX": -0.070,
+    "rowY": -0.137,
+    "rowW": 0.470,
+    "rowH": 0.190,
+    "titleX": 0.020,
+    "titleY": -0.085,
+    "titleW": 0.205,
+    "titleH": 0.034,
+}
 
 # The in-battle Order Change screen draws a bright SELECT marker at these
 # server-independent detection centers in the 2560x1440 reference frame.
@@ -2364,10 +2402,13 @@ def _find_all_template_matches(
     region: dict,
     threshold: float,
     template_scale: float = 1.0,
+    template_reference_width: Optional[float] = None,
 ) -> list[dict]:
     """Return vertically distinct matches for one static UI label."""
     tmpl = _get_template(template_key)
-    tmpl = _scale_static_template_for_image(tmpl, img, template_key)
+    tmpl = _scale_static_template_for_image(
+        tmpl, img, template_key, template_reference_width
+    )
     if abs(template_scale - 1.0) > 1e-6:
         tmpl = cv2.resize(
             tmpl,
@@ -2412,6 +2453,30 @@ def _find_all_template_matches(
         y1 = min(result.shape[0], y + th)
         result[y0:y1, x0:x1] = -1.0
     return sorted(matches, key=lambda match: (match["y"], match["x"]))
+
+
+def _find_interlude_dialogue_choices(img: np.ndarray) -> list[dict]:
+    """Return click targets in the dark boxes above the blue bottom borders."""
+    h, w = img.shape[:2]
+    top, bottom = round(0.19 * h), round(0.62 * h)
+    left, right = round(0.19 * w), round(0.75 * w)
+    if bottom <= top or right <= left:
+        return []
+    b, g, r = img[top:bottom, left:right].astype(np.int16).transpose(2, 0, 1)
+    blue_edge = ((b > 120) & (b - g > 33) & (g - r > 20)).mean(axis=1) > 0.93
+    dark_box = (np.maximum(np.maximum(b, g), r) < 40).mean(axis=1) > 0.8
+    rows = np.flatnonzero(blue_edge)
+    bands = np.split(rows, np.flatnonzero(np.diff(rows) != 1) + 1)
+    points = []
+    for band in bands:
+        if not max(2, round(0.003 * h)) <= len(band) <= round(0.015 * h):
+            continue
+        end = int(band[0])
+        start = end - round(0.035 * h)
+        if start < 0 or dark_box[start : end - max(1, round(0.010 * h))].mean() <= 0.5:
+            continue
+        points.append({"x": 0.5, "y": (top + end) / h - 0.045})
+    return points[:3]
 
 
 def _rank_up_quest_row_color_stats(img: np.ndarray, row: dict) -> tuple[float, float, float]:
@@ -2550,6 +2615,142 @@ def _find_rank_up_quest_rows(img: np.ndarray) -> dict:
         "diagnostics": {
             "rankUpAnchorCount": len(rank_anchors),
             "costAnchorCount": len(cost_anchors),
+            "pairedRowCount": len(rows),
+        },
+    }
+
+
+def _interlude_title_signature(gray: np.ndarray, region: dict) -> str:
+    """Return a compact 128-bit visual fingerprint for a title region."""
+    h, w = gray.shape[:2]
+    x0 = max(0, min(w - 1, int(round(region["x"] * w))))
+    y0 = max(0, min(h - 1, int(round(region["y"] * h))))
+    x1 = max(x0 + 1, min(w, int(round((region["x"] + region["w"]) * w))))
+    y1 = max(y0 + 1, min(h, int(round((region["y"] + region["h"]) * h))))
+    crop = gray[y0:y1, x0:x1]
+    if crop.size == 0:
+        return "0" * 32
+    crop = cv2.resize(crop, (16, 8), interpolation=cv2.INTER_AREA)
+    crop = cv2.equalizeHist(crop)
+    mean = float(crop.mean())
+    value = 0
+    for bit in (crop > mean).flatten():
+        value = (value << 1) | int(bool(bit))
+    return f"{value:032x}"
+
+
+def _interlude_row_region(anchor: dict, spec: dict) -> dict:
+    return {
+        "x": anchor["x"] + spec["rowX"],
+        "y": anchor["y"] + spec["rowY"],
+        "w": spec["rowW"],
+        "h": spec["rowH"],
+    }
+
+
+def _interlude_title_region(anchor: dict, spec: dict) -> dict:
+    return {
+        "x": anchor["x"] + spec["titleX"],
+        "y": anchor["y"] + spec["titleY"],
+        "w": spec["titleW"],
+        "h": spec["titleH"],
+    }
+
+
+def _find_interlude_quest_rows(img: np.ndarray) -> dict:
+    """Find interlude rows in the 02 list / 03-1 stage list.
+
+    Normal rows are anchored on the ``消耗`` label; quick-link rows on the
+    ``前往故事的舞台`` banner. Free-quest rows are dropped via their
+    ``自由关卡`` label so the runner never selects them.
+    """
+    cost_anchors: list[dict] = []
+    quick_anchors: list[dict] = []
+    for scale in INTERLUDE_ROW_ANCHOR_SCALES:
+        cost_anchors.extend(
+            _find_all_template_matches(
+                img,
+                INTERLUDE_COST_ANCHOR_TEMPLATE,
+                INTERLUDE_LIST_REGION,
+                INTERLUDE_COST_ANCHOR_THRESHOLD,
+                template_scale=scale,
+                template_reference_width=INTERLUDE_TEMPLATE_REFERENCE_WIDTH,
+            )
+        )
+        quick_anchors.extend(
+            _find_all_template_matches(
+                img,
+                INTERLUDE_QUICK_LINK_ANCHOR_TEMPLATE,
+                INTERLUDE_LIST_REGION,
+                INTERLUDE_QUICK_LINK_ANCHOR_THRESHOLD,
+                template_scale=scale,
+                template_reference_width=INTERLUDE_TEMPLATE_REFERENCE_WIDTH,
+            )
+        )
+    free_anchors = _find_all_template_matches(
+        img,
+        INTERLUDE_FREE_QUEST_ANCHOR_TEMPLATE,
+        INTERLUDE_LIST_REGION,
+        INTERLUDE_FREE_QUEST_ANCHOR_THRESHOLD,
+        template_reference_width=INTERLUDE_TEMPLATE_REFERENCE_WIDTH,
+    )
+
+    candidates: list[dict] = []
+    for match in cost_anchors:
+        if any(abs(match["y"] - free["y"]) < 0.12 for free in free_anchors):
+            continue
+        candidates.append({"kind": "normal", "anchor": match, "spec": INTERLUDE_NORMAL_ROW})
+    for match in quick_anchors:
+        candidates.append({"kind": "quickLink", "anchor": match, "spec": INTERLUDE_QUICK_ROW})
+
+    candidates.sort(key=lambda item: float(item["anchor"]["score"]), reverse=True)
+    kept: list[dict] = []
+    for candidate in candidates:
+        ay = candidate["anchor"]["y"]
+        if any(abs(ay - existing["anchor"]["y"]) < 0.05 for existing in kept):
+            continue
+        kept.append(candidate)
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
+    h, w = gray.shape[:2]
+    rows: list[dict] = []
+    for candidate in sorted(kept, key=lambda item: item["anchor"]["y"]):
+        anchor = candidate["anchor"]
+        spec = candidate["spec"]
+        row = _interlude_row_region(anchor, spec)
+        title = _interlude_title_region(anchor, spec)
+        if row["y"] < 0.08 or row["y"] + row["h"] > 0.97:
+            continue
+        if title["y"] < 0.06 or title["y"] + title["h"] > 0.96:
+            continue
+        tx0 = max(0, min(w - 1, int(round(title["x"] * w))))
+        ty0 = max(0, min(h - 1, int(round(title["y"] * h))))
+        tx1 = max(tx0 + 1, min(w, int(round((title["x"] + title["w"]) * w))))
+        ty1 = max(ty0 + 1, min(h, int(round((title["y"] + title["h"]) * h))))
+        title_crop = gray[ty0:ty1, tx0:tx1]
+        mean_luma = float(title_crop.mean()) if title_crop.size else 0.0
+        actionable = mean_luma >= INTERLUDE_ACTIONABLE_LUMA
+        signature = _interlude_title_signature(gray, title)
+        rows.append(
+            {
+                "candidateId": f"interlude-row-{len(rows)}",
+                "region": row,
+                "titleRegion": title,
+                "titleSignature": signature,
+                "kind": candidate["kind"],
+                "actionable": actionable,
+                "anchorScore": float(anchor["score"]),
+                "meanLuma": mean_luma,
+                "meanSaturation": 0.0,
+                "meanValue": 0.0,
+            }
+        )
+    return {
+        "rows": rows,
+        "diagnostics": {
+            "normalAnchorCount": len(cost_anchors),
+            "quickLinkAnchorCount": len(quick_anchors),
+            "freeQuestAnchorCount": len(free_anchors),
             "pairedRowCount": len(rows),
         },
     }
@@ -8016,6 +8217,30 @@ def _main_repl() -> None:
                             cmd["element"],
                         ),
                     )
+            elif action == "find_interlude_dialogue_choices":
+                img, err = _load_frame(cmd)
+                if img is None:
+                    _reply(req_id, {"error": err})
+                else:
+                    _reply(req_id, {"choices": _find_interlude_dialogue_choices(img)})
+            elif action == "find_interlude_quest_rows":
+                img, err = _load_frame(cmd)
+                if img is None:
+                    _reply(
+                        req_id,
+                        {
+                            "rows": [],
+                            "diagnostics": {
+                                "normalAnchorCount": 0,
+                                "quickLinkAnchorCount": 0,
+                                "freeQuestAnchorCount": 0,
+                                "pairedRowCount": 0,
+                            },
+                            "error": err,
+                        },
+                    )
+                else:
+                    _reply(req_id, _find_interlude_quest_rows(img))
             elif action == "find_rank_up_quest_rows":
                 img, err = _load_frame(cmd)
                 if img is None:

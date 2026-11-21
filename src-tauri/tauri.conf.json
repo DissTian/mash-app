@@ -82,6 +82,8 @@
       "resources/servers/cn/templates/enhancement_ce/*": "resources/servers/cn/templates/enhancement_ce/",
       "resources/servers/cn/templates/enhancement/*": "resources/servers/cn/templates/enhancement/",
       "resources/servers/cn/templates/rank-up-quest/*": "resources/servers/cn/templates/rank-up-quest/",
+      "resources/servers/cn/templates/interlude/*": "resources/servers/cn/templates/interlude/",
+      "resources/servers/cn/templates/main/*": "resources/servers/cn/templates/main/",
       "resources/servers/cn/templates/screen_support/*": "resources/servers/cn/templates/screen_support/",
       "resources/servers/cn/templates/screen_team_confirm/*": "resources/servers/cn/templates/screen_team_confirm/",
       "resources/servers/cn/templates/summon_friends_point/*": "resources/servers/cn/templates/summon_friends_point/",

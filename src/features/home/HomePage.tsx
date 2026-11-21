@@ -13,6 +13,7 @@ interface HomePageProps {
   showSummon: boolean;
   showEnhancement: boolean;
   showRankUpQuest: boolean;
+  showInterlude: boolean;
   showServantEnhancement: boolean;
   showAutoBattle: boolean;
   onSelectFigure: (id: number) => Promise<void>;
@@ -20,6 +21,7 @@ interface HomePageProps {
   onOpenSummon: () => void;
   onOpenCraftEssenceEnhancement: () => void;
   onOpenRankUpQuest: () => void;
+  onOpenInterlude: () => void;
   onOpenServantEnhancement: () => void;
   onOpenAutoBattle: () => void;
   onOpenBench?: () => void;
@@ -32,6 +34,7 @@ export function HomePage({
   showSummon,
   showEnhancement,
   showRankUpQuest,
+  showInterlude,
   showServantEnhancement,
   showAutoBattle,
   onSelectFigure,
@@ -39,6 +42,7 @@ export function HomePage({
   onOpenSummon,
   onOpenCraftEssenceEnhancement,
   onOpenRankUpQuest,
+  onOpenInterlude,
   onOpenServantEnhancement,
   onOpenAutoBattle,
   onOpenBench,
@@ -190,13 +194,16 @@ export function HomePage({
               {showRankUpQuest && (
                 <TaskCard appearance="enhance" number="02" caption="RANK UP" title="强化任务" description="进入强化任务" onClick={onOpenRankUpQuest} />
               )}
+              {showInterlude && (
+                <TaskCard appearance="battle" number="03" caption="INTERLUDE" title="幕间物语" description="自动完成可挑战的幕间任务" onClick={onOpenInterlude} />
+              )}
               {showAutoBattle && (
-                <TaskCard appearance="battle" number="03" caption="AUTO" title="自动战斗" description="配置自动战斗策略方案" onClick={onOpenAutoBattle} />
+                <TaskCard appearance="battle" number="04" caption="AUTO" title="自动战斗" description="配置自动战斗策略方案" onClick={onOpenAutoBattle} />
               )}
             </>
           ) : (
             <>
-              <TaskCard appearance="battle" number="01" caption="BATTLE" title="战斗" description="编队、开始与强化任务" onClick={() => setBattleMenuOpen(true)} />
+              <TaskCard appearance="battle" number="01" caption="BATTLE" title="战斗" description="编队、强化与幕间" onClick={() => setBattleMenuOpen(true)} />
               {showSummon && (
                 <TaskCard appearance="summon" number="02" caption="SUMMON" title="召唤" description="友情点召唤" onClick={onOpenSummon} />
               )}

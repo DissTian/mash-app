@@ -6374,6 +6374,17 @@ class TestREPL:
         responses = self._run([{"cmd": "quit"}])
         assert responses == []
 
+    def test_interlude_dialogue_choices(self):
+        fixture = Path(__file__).with_name("test_data") / "interlude/dialogue_two_choices_960x540.png"
+        response, = self._run([
+            {"cmd": "find_interlude_dialogue_choices", "imagePath": str(fixture), "id": 1},
+            {"cmd": "quit"},
+        ])
+        assert response["id"] == 1
+        assert [point["y"] for point in response["choices"]] == pytest.approx(
+            [0.305, 0.479], abs=0.006
+        )
+
     def test_template_failure_code_is_shared_by_loading_and_matching_commands(self, tmp_path):
         image = tmp_path / "frame.png"
         _save_image(_make_bgr_image(200, 200), str(image))
@@ -7844,3 +7855,89 @@ def test_bond_servant_match_prefers_exact_variant_over_perfect_substring(monkeyp
     result = cv._best_servant_match("贞德·Alter·Santa·Lily", "nameCN")
     assert result["id"] == 2
     assert result["score"] == 1.0
+
+
+# ── Interlude quest list rows ────────────────────────────────────────────
+
+
+def _interlude_fixture(filename: str) -> np.ndarray:
+    path = Path(__file__).with_name("test_data") / "interlude" / filename
+    image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+    assert image is not None
+    return image
+
+
+def _load_cn_interlude_assets():
+    resources = Path(__file__).resolve().parents[3] / "src-tauri/resources/servers"
+    mash_cv._load_templates(str(resources / "shared/templates"), key_prefix="shared")
+    mash_cv._load_templates(str(resources / "cn/templates"), append=True)
+    mash_cv._load_config(str(resources / "shared/cv.json"))
+    mash_cv._load_config(str(resources / "cn/cv.json"), merge=True)
+
+
+def test_interlude_rows_classify_normal_quick_and_locked_rows():
+    _load_cn_interlude_assets()
+    image = _interlude_fixture("interlude_list_960x540.png")
+
+    result = mash_cv._find_interlude_quest_rows(image)
+
+    assert [row["kind"] for row in result["rows"]] == ["quickLink", "normal", "normal"]
+    assert all(row["actionable"] for row in result["rows"])
+    assert all(len(row["titleSignature"]) == 32 for row in result["rows"])
+    assert result["diagnostics"]["pairedRowCount"] == 3
+
+
+def test_interlude_locked_row_is_not_actionable():
+    _load_cn_interlude_assets()
+    image = _interlude_fixture("interlude_locked_960x540.png")
+
+    result = mash_cv._find_interlude_quest_rows(image)
+
+    assert len(result["rows"]) == 1
+    assert result["rows"][0]["kind"] == "quickLink"
+    assert result["rows"][0]["actionable"] is False
+
+
+def test_interlude_list_screen_detects_from_downscaled_capture():
+    _load_cn_interlude_assets()
+    image = _interlude_fixture("interlude_list_960x540.png")
+
+    result = mash_cv._detect_screen(image)
+
+    assert result["screen"] == "InterludeQuest"
+    assert result["score"] >= 0.7
+
+
+@pytest.mark.parametrize(
+    ("fixture", "expected_screen", "expected_choices"),
+    [
+        ("dialogue", "Dialog", []),
+        ("dialogue_one_choice", "Dialog", [0.392]),
+        ("dialogue_two_choices", "Dialog", [0.305, 0.479]),
+        ("dialogue_skip_confirm", "DialogSkipConfirm", []),
+        ("interlude_list", "InterludeQuest", []),
+    ],
+)
+def test_interlude_dialogue_choices_are_detected_by_box_and_sorted(
+    fixture, expected_screen, expected_choices
+):
+    from mash_cv.cv import _find_interlude_dialogue_choices
+
+    _load_cn_interlude_assets()
+    image = _interlude_fixture(f"{fixture}_960x540.png")
+    assert mash_cv._detect_screen(image)["screen"] == expected_screen
+    choices = _find_interlude_dialogue_choices(image)
+    assert [choice["y"] for choice in choices] == pytest.approx(expected_choices, abs=0.006)
+    assert all(choice["x"] == 0.5 for choice in choices)
+
+
+def test_interlude_dialogue_three_choices_without_text():
+    from mash_cv.cv import _find_interlude_dialogue_choices
+
+    frame = np.zeros((540, 960, 3), dtype=np.uint8)
+    for y in (134, 228, 322):
+        frame[y : y + 4, 105:855] = (185, 112, 75)
+    choices = _find_interlude_dialogue_choices(frame)
+    assert [choice["y"] for choice in choices] == pytest.approx(
+        [0.203, 0.377, 0.551], abs=0.006
+    )

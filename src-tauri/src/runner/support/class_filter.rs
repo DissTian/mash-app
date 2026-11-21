@@ -66,21 +66,26 @@ impl SupportClassSearchProgress {
         cn_extra_filter_enabled: bool,
         cn_extra_configured: bool,
     ) -> Option<SupportClassFilterAction> {
-        // Without a pinned servant, preserve the current tab in every mode.
-        let class_name = class_name?;
         if self.tab_done {
             return None;
         }
+        // Without a pinned servant, preserve the current tab in every mode.
+        let class_name = class_name?;
+        // ALL mode does not depend on the pinned servant's class name. Some
+        // catalog entries carry an empty className; previously that skipped
+        // the tab tap entirely and left the list on whatever tab was open.
         if mode == SupportClassFilterMode::AllClasses || self.searching_all_classes {
-            Some(SupportClassFilterAction::Tap(SUPPORT_TAB_ALL))
-        } else {
-            support_class_filter_action(
-                server,
-                class_name,
-                cn_extra_filter_enabled,
-                cn_extra_configured,
-            )
+            return Some(SupportClassFilterAction::Tap(SUPPORT_TAB_ALL));
         }
+        support_class_filter_action(
+            server,
+            class_name,
+            cn_extra_filter_enabled,
+            cn_extra_configured,
+        )
+        // A pinned servant with an unknown/empty className must not leave the
+        // list on whatever tab was previously open; fall back to ALL.
+        .or(Some(SupportClassFilterAction::Tap(SUPPORT_TAB_ALL)))
     }
 
     /// An exhausted corresponding-class list gets one ALL scan before a
@@ -183,4 +188,76 @@ pub(crate) fn support_class_filter_action(
         }
     }
     class_tab_for(class_name).map(SupportClassFilterAction::Tap)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_classes_mode_taps_all_even_without_class_metadata() {
+        let progress = SupportClassSearchProgress::default();
+        match progress.filter_action(
+            Server::Cn,
+            Some(""),
+            SupportClassFilterMode::AllClasses,
+            false,
+            false,
+        ) {
+            Some(SupportClassFilterAction::Tap(point)) => {
+                assert!((point.x - SUPPORT_TAB_ALL.x).abs() < 1e-9);
+                assert!((point.y - SUPPORT_TAB_ALL.y).abs() < 1e-9);
+            }
+            other => panic!("expected ALL tab tap, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn corresponding_class_mode_uses_the_pinned_class_tab() {
+        let progress = SupportClassSearchProgress::default();
+        match progress.filter_action(
+            Server::Cn,
+            Some("saber"),
+            SupportClassFilterMode::CorrespondingClass,
+            false,
+            false,
+        ) {
+            Some(SupportClassFilterAction::Tap(point)) => {
+                assert!((point.x - SUPPORT_TAB_SABER.x).abs() < 1e-9);
+                assert!((point.y - SUPPORT_TAB_SABER.y).abs() < 1e-9);
+            }
+            other => panic!("expected saber tab tap, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn corresponding_class_mode_falls_back_to_all_for_unknown_class() {
+        let progress = SupportClassSearchProgress::default();
+        match progress.filter_action(
+            Server::Cn,
+            Some(""),
+            SupportClassFilterMode::CorrespondingClass,
+            false,
+            false,
+        ) {
+            Some(SupportClassFilterAction::Tap(point)) => {
+                assert!((point.x - SUPPORT_TAB_ALL.x).abs() < 1e-9);
+            }
+            other => panic!("expected ALL fallback, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn corresponding_class_mode_requires_class_metadata() {
+        let progress = SupportClassSearchProgress::default();
+        assert!(progress
+            .filter_action(
+                Server::Cn,
+                None,
+                SupportClassFilterMode::CorrespondingClass,
+                false,
+                false,
+            )
+            .is_none());
+    }
 }

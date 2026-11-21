@@ -283,7 +283,18 @@ pub(crate) fn start_rank_up_quest_automation(
 
 fn start_automation_with_config(
     app: &tauri::AppHandle,
+    config: RunConfig,
+    handle_state: &Mutex<RunnerHandle>,
+    coordinator: &DeviceOperationCoordinator,
+    debug_state: &debug::DebugSidecar,
+) -> Result<(), String> {
+    start_automation_with_project(app, config, None, handle_state, coordinator, debug_state)
+}
+
+pub(crate) fn start_automation_with_project(
+    app: &tauri::AppHandle,
     mut config: RunConfig,
+    project_override: Option<crate::models::Project>,
     handle_state: &Mutex<RunnerHandle>,
     coordinator: &DeviceOperationCoordinator,
     debug_state: &debug::DebugSidecar,
@@ -291,9 +302,12 @@ fn start_automation_with_config(
     let automation_lease =
         coordinator.reserve(DeviceOperation::Automation(AutomationKind::Battle))?;
 
-    let project = read_projects(app)?
-        .into_iter()
-        .find(|project| project.id == config.project_id);
+    let project = match project_override {
+        Some(project) => Some(project),
+        None => read_projects(app)?
+            .into_iter()
+            .find(|project| project.id == config.project_id),
+    };
     let advanced_mode = project
         .as_ref()
         .map(|project| project.advanced_mode)
@@ -309,7 +323,7 @@ fn start_automation_with_config(
         config.auto_battle_profile_id.as_deref(),
         advanced_mode,
     )?;
-    let scenes = if advanced_mode {
+    let scenes = if advanced_mode || config.interlude_quest.is_some() {
         Vec::new()
     } else {
         load_battle_scenes(app.clone(), config.project_id.clone())?
@@ -351,6 +365,20 @@ fn start_automation_with_config(
     config.support_full_list_ocr_fallback = recognition_settings.support_full_list_ocr_fallback;
     config.unknown_screen_timeout_count = recognition_settings.unknown_screen_timeout_count;
     config.ap_recovery_confirm_wait_ms = recognition_settings.ap_recovery_confirm_wait_ms;
+    if config.interlude_quest.is_some() {
+        // The interlude flow always uses auto-battle takeover, ignores
+        // settlement stop conditions, and never reads a team layout.
+        config.auto_battle_takeover = true;
+        config.stop_on_five_star_ce_drop = false;
+        config.stop_on_bond_level_up = false;
+        config.stop_on_bond_max_level = false;
+        config.party_order = None;
+        config.servant_selections.clear();
+        config.mystic_code_id = None;
+        config.support_class_filter_mode = crate::SupportClassFilterMode::CorrespondingClass;
+        config.enable_extra_class_filter = false;
+        config.skip_team_verification = true;
+    }
     let debug_settings = *app.state::<Mutex<DebugSettings>>().lock().unwrap();
     config.auto_capture_battle_before_attack = debug_settings.auto_capture_battle_before_attack;
     config.auto_capture_battle_result_loot = debug_settings.auto_capture_battle_result_loot;
@@ -375,6 +403,7 @@ fn start_automation_with_config(
             resolve_servant_assets_dir(app).as_deref(),
             resolve_ce_assets_dir(app).as_deref(),
         )?,
+        None if config.interlude_quest.is_some() => Vec::new(),
         None => return Err("未找到当前编队项目".into()),
     };
     let mystic_code_name = config.mystic_code_id.and_then(|id| {
@@ -384,7 +413,11 @@ fn start_automation_with_config(
             .find(|code| code.id == id)
             .map(|code| code.name)
     });
-    let team_verification = Arc::new(Mutex::new(TeamVerificationControl::default()));
+    let team_verification = Arc::new(Mutex::new(if config.skip_team_verification {
+        TeamVerificationControl::skipped()
+    } else {
+        TeamVerificationControl::default()
+    }));
     let app = app.clone();
     let state = Arc::new(Mutex::new(RunnerState::Starting));
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));

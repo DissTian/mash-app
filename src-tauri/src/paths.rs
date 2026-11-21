@@ -152,6 +152,10 @@ pub(crate) fn servant_enhancement_queue_path(app: &tauri::AppHandle) -> PathBuf 
     app_data_dir(app).join("servant_enhancement_queue.json")
 }
 
+pub(crate) fn interlude_task_config_path(app: &tauri::AppHandle) -> PathBuf {
+    app_data_dir(app).join("interlude_task.json")
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppUiSettings {

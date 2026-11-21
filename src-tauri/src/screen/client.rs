@@ -289,6 +289,17 @@ impl SidecarClient {
         );
     }
 
+    /// Detection scope for the standalone interlude flow: battle screens plus
+    /// the interlude list/confirm/dialog/formation/failure pages.
+    pub fn use_interlude_detection(&mut self) {
+        self.detection_screens = Some(
+            super::types::INTERLUDE_DETECTION_SCREENS
+                .iter()
+                .map(|name| name.to_string())
+                .collect(),
+        );
+    }
+
     fn check_response(&mut self, response: &serde_json::Value) -> CvResult<()> {
         if let Some(error) = template_response_error(response) {
             self.healthy = false;

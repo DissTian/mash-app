@@ -198,3 +198,25 @@ fn loot_event_screen_routes_to_loot_handler() {
         Screen::BattleResultLoot
     );
 }
+
+#[test]
+fn interlude_screens_round_trip() {
+    for (value, screen) in [
+        ("Main", Screen::Main),
+        ("ChaldeaGate", Screen::ChaldeaGate),
+        ("InterludeQuest", Screen::InterludeQuest),
+        ("InterludeStage", Screen::InterludeStage),
+        ("QuestConfirm", Screen::QuestConfirm),
+        ("TurnLimitQuestConfirm", Screen::TurnLimitQuestConfirm),
+        ("NoBattleQuestConfirm", Screen::NoBattleQuestConfirm),
+        ("Dialog", Screen::Dialog),
+        ("DialogSkipConfirm", Screen::DialogSkipConfirm),
+        ("BattleContinue", Screen::BattleContinue),
+        ("RetreatNotice", Screen::RetreatNotice),
+        ("CharmConfirm", Screen::CharmConfirm),
+        ("ServantProfileUpdate", Screen::ServantProfileUpdate),
+    ] {
+        assert_eq!(value.parse::<Screen>().unwrap(), screen);
+        assert_eq!(screen.to_string(), value);
+    }
+}

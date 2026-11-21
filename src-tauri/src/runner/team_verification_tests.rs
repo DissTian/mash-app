@@ -182,7 +182,7 @@ fn resume_resets_load_wait_without_resetting_start_attempts() {
     battle.observe_battle_load(Screen::Unknown, start, 3);
     battle.observe_battle_load(Screen::Unknown, start, 3);
     let resumed = start + Duration::from_secs(100);
-    battle.resume_after_team_verification(resumed);
+    battle.reset_battle_load_wait(resumed);
     assert_eq!(
         battle.observe_battle_load(Screen::TeamConfirm, resumed, 3),
         BattleLoadGate::Waiting

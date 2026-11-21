@@ -856,12 +856,67 @@ pub struct FindSupportsResult {
     pub diagnostics: SupportDiagnostics,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterludeQuestRow {
+    pub candidate_id: String,
+    pub region: NormRect,
+    /// Region containing the row title; used for title fingerprinting.
+    pub title_region: NormRect,
+    /// Compact visual fingerprint of the title region. The runner compares
+    /// these to identify the same quest across list refreshes.
+    pub title_signature: String,
+    /// ``normal`` | ``quickLink`` | ``freeQuest``.
+    pub kind: String,
+    pub actionable: bool,
+    pub anchor_score: f64,
+    pub mean_luma: f64,
+    pub mean_saturation: f64,
+    pub mean_value: f64,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterludeQuestDiagnostics {
+    pub normal_anchor_count: u32,
+    pub quick_link_anchor_count: u32,
+    pub free_quest_anchor_count: u32,
+    pub paired_row_count: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FindInterludeQuestRowsResult {
+    #[serde(default)]
+    pub rows: Vec<InterludeQuestRow>,
+    #[serde(default)]
+    pub diagnostics: InterludeQuestDiagnostics,
+}
+
 // ---------------------------------------------------------------------------
 // Screen enum
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum Screen {
+    Main,
+    ChaldeaGate,
+    InterludeQuest,
+    InterludeStage,
+    QuestConfirm,
+    TurnLimitQuestConfirm,
+    NoBattleQuestConfirm,
+    FormationLimitDialog,
+    AutoFormationDialog,
+    EmptySlotAutoFormationDialog,
+    FormationEditor,
+    TeamConfirmInterlude,
+    Dialog,
+    DialogSkipConfirm,
+    BattleContinue,
+    RetreatNotice,
+    CharmConfirm,
+    ServantProfileUpdate,
     RankUpQuest,
     TeamConfirm,
     TeamChange,
@@ -905,9 +960,65 @@ pub(super) const BATTLE_DETECTION_SCREENS: &[&str] = &[
     "APRecovery",
 ];
 
+pub(super) const INTERLUDE_DETECTION_SCREENS: &[&str] = &[
+    "Main",
+    "ChaldeaGate",
+    "InterludeQuest",
+    "InterludeStage",
+    "QuestConfirm",
+    "TurnLimitQuestConfirm",
+    "NoBattleQuestConfirm",
+    "FormationLimitDialog",
+    "AutoFormationDialog",
+    "EmptySlotAutoFormationDialog",
+    "FormationEditor",
+    "TeamConfirmInterlude",
+    "Dialog",
+    "DialogSkipConfirm",
+    "BattleContinue",
+    "RetreatNotice",
+    "CharmConfirm",
+    "ServantProfileUpdate",
+    "RankUpQuest",
+    "TeamConfirm",
+    "TeamChange",
+    "SupportSelect",
+    "ServantSelect",
+    "Battle",
+    "Attack",
+    "BattleResultLoot",
+    "BattleResultLootEvent",
+    "BattleResultExp",
+    "BattleResultExpLevelUp",
+    "BattleResultMasterLevelUp",
+    "BattleResultBond",
+    "BattleResultBondLevelUp",
+    "BattleResultContinue",
+    "BattleResultFriendRequest",
+    "APRecovery",
+];
+
 impl std::fmt::Display for Screen {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Main => write!(f, "Main"),
+            Self::ChaldeaGate => write!(f, "ChaldeaGate"),
+            Self::InterludeQuest => write!(f, "InterludeQuest"),
+            Self::InterludeStage => write!(f, "InterludeStage"),
+            Self::QuestConfirm => write!(f, "QuestConfirm"),
+            Self::TurnLimitQuestConfirm => write!(f, "TurnLimitQuestConfirm"),
+            Self::NoBattleQuestConfirm => write!(f, "NoBattleQuestConfirm"),
+            Self::FormationLimitDialog => write!(f, "FormationLimitDialog"),
+            Self::AutoFormationDialog => write!(f, "AutoFormationDialog"),
+            Self::EmptySlotAutoFormationDialog => write!(f, "EmptySlotAutoFormationDialog"),
+            Self::FormationEditor => write!(f, "FormationEditor"),
+            Self::TeamConfirmInterlude => write!(f, "TeamConfirmInterlude"),
+            Self::Dialog => write!(f, "Dialog"),
+            Self::DialogSkipConfirm => write!(f, "DialogSkipConfirm"),
+            Self::BattleContinue => write!(f, "BattleContinue"),
+            Self::RetreatNotice => write!(f, "RetreatNotice"),
+            Self::CharmConfirm => write!(f, "CharmConfirm"),
+            Self::ServantProfileUpdate => write!(f, "ServantProfileUpdate"),
             Self::RankUpQuest => write!(f, "RankUpQuest"),
             Self::TeamConfirm => write!(f, "TeamConfirm"),
             Self::TeamChange => write!(f, "TeamChange"),
@@ -931,6 +1042,24 @@ impl FromStr for Screen {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let screen = match s {
+            "Main" => Self::Main,
+            "ChaldeaGate" => Self::ChaldeaGate,
+            "InterludeQuest" => Self::InterludeQuest,
+            "InterludeStage" => Self::InterludeStage,
+            "QuestConfirm" => Self::QuestConfirm,
+            "TurnLimitQuestConfirm" => Self::TurnLimitQuestConfirm,
+            "NoBattleQuestConfirm" => Self::NoBattleQuestConfirm,
+            "FormationLimitDialog" => Self::FormationLimitDialog,
+            "AutoFormationDialog" => Self::AutoFormationDialog,
+            "EmptySlotAutoFormationDialog" => Self::EmptySlotAutoFormationDialog,
+            "FormationEditor" => Self::FormationEditor,
+            "TeamConfirmInterlude" => Self::TeamConfirmInterlude,
+            "Dialog" => Self::Dialog,
+            "DialogSkipConfirm" => Self::DialogSkipConfirm,
+            "BattleContinue" => Self::BattleContinue,
+            "RetreatNotice" => Self::RetreatNotice,
+            "CharmConfirm" => Self::CharmConfirm,
+            "ServantProfileUpdate" => Self::ServantProfileUpdate,
             "RankUpQuest" => Self::RankUpQuest,
             "TeamConfirm" => Self::TeamConfirm,
             "TeamChange" => Self::TeamChange,

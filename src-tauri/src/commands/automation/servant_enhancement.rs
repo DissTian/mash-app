@@ -5,9 +5,9 @@ use crate::commands::catalog::load_servant_enhancement_target;
 use crate::servant_enhancement::{
     natural_max_for_rarity, normalize_level, servant_enhancement_lifecycle_transition, EntryStatus,
     ServantEnhancementAutomationEvent, ServantEnhancementEntry, ServantEnhancementEntryInput,
-    ServantEnhancementEntryState, ServantEnhancementLifecycleEvent,
-    ServantEnhancementQueueStore, ServantEnhancementRunner, ServantEnhancementRunnerHandle,
-    ServantEnhancementRunnerState, ServantEnhancementStatePayload, EVENT_NAME,
+    ServantEnhancementEntryState, ServantEnhancementLifecycleEvent, ServantEnhancementQueueStore,
+    ServantEnhancementRunner, ServantEnhancementRunnerHandle, ServantEnhancementRunnerState,
+    ServantEnhancementStatePayload, EVENT_NAME,
 };
 use std::collections::HashSet;
 
@@ -253,22 +253,9 @@ pub(crate) fn start_servant_enhancement_automation(
                     )
                 },
                 failed: &|message| {
-                    fail_start(
-                        &app,
-                        &state,
-                        &entry_states,
-                        &current_entry_id,
-                        message,
-                    )
+                    fail_start(&app, &state, &entry_states, &current_entry_id, message)
                 },
-                cancelled: &|| {
-                    stop_start(
-                        &app,
-                        &state,
-                        &entry_states,
-                        &current_entry_id,
-                    )
-                },
+                cancelled: &|| stop_start(&app, &state, &entry_states, &current_entry_id),
             },
             |_| Ok(()),
         )

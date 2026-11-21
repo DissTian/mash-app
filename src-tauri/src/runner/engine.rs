@@ -38,7 +38,11 @@ impl Runner {
     }
 
     fn run_loop(&mut self) -> AutomationResult<()> {
-        self.sidecar().use_battle_detection();
+        if self.interlude_quest_active() {
+            self.sidecar().use_interlude_detection();
+        } else {
+            self.sidecar().use_battle_detection();
+        }
         let timeout = self.config.unknown_screen_timeout_count;
         if let Err(error) = self.sidecar().configure_recognition_diagnostics(timeout) {
             self.emit_debug("CV", &error);
@@ -61,7 +65,7 @@ impl Runner {
                 return Ok(());
             }
 
-            let screen = match self.sidecar().detect(None).recoverable()? {
+            let mut screen = match self.sidecar().detect(None).recoverable()? {
                 Ok(s) => s,
                 Err(e) => {
                     self.transition_lifecycle(RunnerLifecycleEvent::Failed {
@@ -73,12 +77,45 @@ impl Runner {
                 }
             };
 
+            if !self.interlude_navigation_phase() && self.probe_interlude_dialogue(screen)? {
+                unknown_count = 0;
+                self.battle.reset_battle_load_wait(Instant::now());
+                thread::sleep(POLL_INTERVAL);
+                continue;
+            }
+            // Dialogue is unexpected during navigation. A failed dialogue
+            // probe must also fall through to waiting, not advance a phase.
+            if matches!(screen, Screen::Dialog | Screen::DialogSkipConfirm) {
+                screen = Screen::Unknown;
+            }
+
+            if screen == Screen::Unknown {
+                // A reward may appear immediately after the last dialogue.
+                // Keep the unknown-screen budget so an unresponsive popup
+                // cannot cause an unlimited number of close attempts.
+                if unknown_count.saturating_add(1) < timeout
+                    && self.handle_interlude_reward_popup()?
+                {
+                    unknown_count += 1;
+                    thread::sleep(POLL_INTERVAL);
+                    continue;
+                }
+                if self.interlude_dialogue_grace_active() {
+                    self.emit_debug("InterludeQuest", "剧情播放中，暂不累计未知画面超时");
+                    thread::sleep(POLL_INTERVAL);
+                    continue;
+                }
+            }
+
             if support_search_screen_exited(last_detected_screen, screen) {
                 self.release_support_ocr()?;
             }
 
             self.resolve_pending_ap_recovery(screen);
 
+            if !self.observe_interlude_quest_screen(screen) {
+                return Ok(());
+            }
             if !self.observe_rank_up_quest_screen(screen) {
                 return Ok(());
             }
@@ -111,6 +148,51 @@ impl Runner {
             }
 
             match screen {
+                Screen::Main
+                | Screen::ChaldeaGate
+                | Screen::InterludeQuest
+                | Screen::InterludeStage => {
+                    unknown_count = 0;
+                    last_detected_screen = screen;
+                    self.handle_interlude_quest_screen()?;
+                }
+                Screen::QuestConfirm
+                | Screen::TurnLimitQuestConfirm
+                | Screen::NoBattleQuestConfirm => {
+                    unknown_count = 0;
+                    last_detected_screen = screen;
+                    self.handle_interlude_confirm(screen)?;
+                }
+                Screen::FormationLimitDialog
+                | Screen::AutoFormationDialog
+                | Screen::EmptySlotAutoFormationDialog
+                | Screen::FormationEditor
+                | Screen::TeamConfirmInterlude => {
+                    unknown_count = 0;
+                    last_detected_screen = screen;
+                    self.handle_interlude_formation_dialog(screen);
+                }
+                Screen::Dialog | Screen::DialogSkipConfirm => {}
+                Screen::BattleContinue => {
+                    unknown_count = 0;
+                    last_detected_screen = screen;
+                    self.handle_interlude_battle_continue();
+                }
+                Screen::CharmConfirm => {
+                    unknown_count = 0;
+                    last_detected_screen = screen;
+                    self.handle_interlude_charm_confirm();
+                }
+                Screen::ServantProfileUpdate => {
+                    unknown_count = 0;
+                    last_detected_screen = screen;
+                    self.handle_interlude_profile_update();
+                }
+                Screen::RetreatNotice => {
+                    unknown_count = 0;
+                    last_detected_screen = screen;
+                    self.handle_interlude_retreat_notice();
+                }
                 Screen::RankUpQuest => {
                     unknown_count = 0;
                     last_detected_screen = screen;
@@ -119,7 +201,11 @@ impl Runner {
                 Screen::TeamConfirm => {
                     unknown_count = 0;
                     last_detected_screen = screen;
-                    self.handle_team_confirm()?;
+                    if self.interlude_quest_active() {
+                        self.handle_interlude_team_confirm()?;
+                    } else {
+                        self.handle_team_confirm()?;
+                    }
                 }
                 Screen::TeamChange => {
                     unknown_count = 0;
@@ -129,7 +215,11 @@ impl Runner {
                 Screen::SupportSelect => {
                     unknown_count = 0;
                     last_detected_screen = screen;
-                    self.handle_support_select()?;
+                    if self.interlude_quest_active() {
+                        self.handle_interlude_support_select()?;
+                    } else {
+                        self.handle_support_select()?;
+                    }
                 }
                 Screen::ServantSelect => {
                     unknown_count = 0;
@@ -198,7 +288,9 @@ impl Runner {
                     unknown_count += 1;
                     let timeout = self.config.unknown_screen_timeout_count;
                     if unknown_count >= timeout {
-                        let message = if self.rank_up_quest_transition_message().is_some() {
+                        let message = if self.interlude_navigation_phase() {
+                            "当前不是干净的主界面/迦勒底之门（可能有登录奖励或公告弹窗），请先关闭后重试"
+                        } else if self.rank_up_quest_transition_message().is_some() {
                             "等待强化任务页面切换超时"
                         } else {
                             "无法识别当前画面"
@@ -207,7 +299,9 @@ impl Runner {
                             message: message.into(),
                         });
                         self.emit(
-                            if self.rank_up_quest_transition_message().is_some() {
+                            if self.interlude_navigation_phase() {
+                                "InterludeQuest"
+                            } else if self.rank_up_quest_transition_message().is_some() {
                                 "RankUpQuest"
                             } else {
                                 "Unknown"
@@ -216,6 +310,14 @@ impl Runner {
                         );
                         self.save_recognition_failure(message);
                         return Ok(());
+                    }
+                    if let Some(message) = self.interlude_quest_transition_message() {
+                        self.emit(
+                            "InterludeQuest",
+                            &format!("{message} ({unknown_count}/{timeout})"),
+                        );
+                        thread::sleep(POLL_INTERVAL);
+                        continue;
                     }
                     if let Some(message) = self.rank_up_quest_transition_message() {
                         self.emit(

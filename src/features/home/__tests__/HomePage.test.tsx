@@ -27,6 +27,7 @@ function renderHome(overrides: Partial<React.ComponentProps<typeof HomePage>> = 
       showSummon
       showEnhancement
       showRankUpQuest
+      showInterlude
       showServantEnhancement
       showAutoBattle
       onSelectFigure={onSelectFigure}
@@ -34,6 +35,7 @@ function renderHome(overrides: Partial<React.ComponentProps<typeof HomePage>> = 
       onOpenSummon={vi.fn()}
       onOpenCraftEssenceEnhancement={vi.fn()}
       onOpenRankUpQuest={vi.fn()}
+      onOpenInterlude={vi.fn()}
       onOpenServantEnhancement={vi.fn()}
       onOpenAutoBattle={vi.fn()}
       {...overrides}

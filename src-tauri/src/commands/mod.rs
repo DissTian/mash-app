@@ -22,6 +22,7 @@ pub(crate) mod bench;
 pub(crate) mod catalog;
 pub(crate) mod debug;
 pub(crate) mod emulator;
+pub(crate) mod interlude;
 pub(crate) mod packet_capture;
 pub(crate) mod projects;
 pub(crate) mod rank_up_quest;

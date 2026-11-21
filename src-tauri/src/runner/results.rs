@@ -529,6 +529,19 @@ impl Runner {
         }
         self.battle_result_continue_handled = true;
 
+        if self.interlude_quest_active() {
+            if let Some(runtime) = self.interlude_quest.as_mut() {
+                runtime.consecutive_failures = 0;
+            }
+            self.emit("BattleResultContinue", "结束当前幕间关卡，返回任务列表");
+            if !self.tap_at("BattleResultContinue", BATTLE_RESULT_CONTINUE_STOP) {
+                return;
+            }
+            self.mark_interlude_return_pending();
+            thread::sleep(ACTION_DELAY);
+            return;
+        }
+
         if self.rank_up_quest_active() {
             self.complete_rank_up_quest_run();
             self.emit("BattleResultContinue", "结束当前强化关卡，返回任务列表");

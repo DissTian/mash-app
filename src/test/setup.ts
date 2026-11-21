@@ -266,6 +266,19 @@ vi.mock("@tauri-apps/api/core", () => ({
         return false;
       case "get_server":
         return "JP";
+      case "get_interlude_task_config":
+        return null;
+      case "save_interlude_task_config":
+      case "start_interlude_automation":
+        return null;
+      case "list_auto_battle_profiles":
+        return [];
+      case "capture_interlude_page":
+        return {
+          captureId: "capture-test",
+          imagePath: "/tmp/interlude-capture.png",
+          rows: [],
+        };
       case "get_recognition_settings":
         return {
           noblePhantasmDetectionMode: "card",

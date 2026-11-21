@@ -485,6 +485,7 @@ impl SidecarClient {
 
 mod battle;
 mod enhancement;
+mod interlude;
 mod rank_up_quest;
 mod support;
 mod team_verification;

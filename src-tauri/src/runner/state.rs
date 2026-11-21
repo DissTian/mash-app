@@ -147,7 +147,7 @@ impl BattleState {
         .unwrap_or(BattleLoadGate::NotWaiting)
     }
 
-    pub(crate) fn resume_after_team_verification(&mut self, at: Instant) {
+    pub(crate) fn reset_battle_load_wait(&mut self, at: Instant) {
         if let BattleFlowState::AwaitingBattleLoad { ref mut wait, .. } = self.flow {
             wait.last_tap_at = at;
             wait.polls = 0;

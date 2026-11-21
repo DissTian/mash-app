@@ -63,6 +63,114 @@ impl RankUpQuestWorkflowConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum InterludeQuestMode {
+    #[default]
+    All,
+    Single,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum InterludeDefeatStrategy {
+    #[default]
+    Retreat,
+    CommandSpell,
+}
+
+/// Support-select requirements configured on the standalone interlude page.
+/// These intentionally mirror the project support fields the runner already
+/// understands, without requiring a Project row.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct InterludeSupportConfig {
+    pub servant_id: Option<u32>,
+    pub servant_variant_key: Option<String>,
+    pub craft_essence_ids: Vec<u32>,
+    pub craft_essence_mlb_required: bool,
+    pub servant_level_min: Option<u32>,
+    pub noble_phantasm_level_min: Option<u32>,
+    pub star_map_score_min: Option<u32>,
+    pub skill_level_mins: [Option<u32>; 3],
+    pub append_skill_level_mins: [Option<u32>; 5],
+}
+
+impl Default for InterludeSupportConfig {
+    fn default() -> Self {
+        Self {
+            servant_id: None,
+            servant_variant_key: None,
+            craft_essence_ids: Vec::new(),
+            craft_essence_mlb_required: true,
+            servant_level_min: None,
+            noble_phantasm_level_min: None,
+            star_map_score_min: None,
+            skill_level_mins: [None; 3],
+            append_skill_level_mins: [None; 5],
+        }
+    }
+}
+
+/// Persisted, standalone interlude-task configuration. This is deliberately
+/// independent from `Project`: the interlude flow never reads a team layout.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct InterludeTaskConfig {
+    pub mode: InterludeQuestMode,
+    pub support: InterludeSupportConfig,
+    pub auto_battle_profile_id: Option<String>,
+    pub ap_recovery_items: Vec<ApRecoveryItem>,
+    pub ap_recovery_limits: ApRecoveryLimits,
+    pub auto_formation: bool,
+    pub allow_turn_limit_quest: bool,
+    pub defeat_strategy: InterludeDefeatStrategy,
+    pub max_consecutive_failures: u32,
+    pub max_repeat_attempts: u32,
+    pub dialogue_grace_seconds: u32,
+}
+
+impl Default for InterludeTaskConfig {
+    fn default() -> Self {
+        Self {
+            mode: InterludeQuestMode::All,
+            support: InterludeSupportConfig::default(),
+            auto_battle_profile_id: None,
+            ap_recovery_items: Vec::new(),
+            ap_recovery_limits: ApRecoveryLimits::default(),
+            auto_formation: true,
+            allow_turn_limit_quest: false,
+            defeat_strategy: InterludeDefeatStrategy::default(),
+            max_consecutive_failures: 3,
+            max_repeat_attempts: 10,
+            dialogue_grace_seconds: 15,
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InterludeStartRequest {
+    pub mode: InterludeQuestMode,
+    #[serde(default)]
+    pub capture_id: Option<String>,
+    #[serde(default)]
+    pub candidate_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InterludeTarget {
+    /// Compact visual fingerprint of the row title region. Captured from the
+    /// selected row and matched against candidate rows for the whole run.
+    pub title_signature: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct InterludeWorkflowConfig {
+    pub task: InterludeTaskConfig,
+    pub target: Option<InterludeTarget>,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct GrandServantRuntimeConfig {
     pub(crate) slot_index: usize,
@@ -152,6 +260,15 @@ pub struct RunConfig {
     pub project_id: String,
     #[serde(skip)]
     pub rank_up_quest: Option<RankUpQuestWorkflowConfig>,
+    /// Standalone interlude workflow. `Some` switches the runner into the
+    /// interlude task flow; the support requirements and AP recovery settings
+    /// in the rest of this config are populated from `InterludeTaskConfig`.
+    #[serde(skip)]
+    pub interlude_quest: Option<InterludeWorkflowConfig>,
+    /// Interlude teams are forced/auto formed; the normal team verification
+    /// gate must not pause the run.
+    #[serde(skip)]
+    pub skip_team_verification: bool,
     /// Mystic Code selected for this team. When present, TeamConfirm checks
     /// the outfit icon in the lower-left corner before starting the quest.
     #[serde(default)]

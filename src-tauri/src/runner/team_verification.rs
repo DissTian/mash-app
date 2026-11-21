@@ -60,6 +60,15 @@ impl Default for TeamVerificationControl {
 }
 
 impl TeamVerificationControl {
+    /// Start a run with the verification gate already waived. Used by the
+    /// standalone interlude flow, whose teams may be fixed/auto formed.
+    pub(crate) fn skipped() -> Self {
+        Self {
+            skipped: true,
+            ..Self::default()
+        }
+    }
+
     fn block(&mut self, issues: Vec<TeamCheckIssue>) -> TeamVerificationReport {
         self.check_id += 1;
         self.decision = None;
@@ -337,7 +346,7 @@ impl Runner {
             }
             let decision = self.team_verification.lock().unwrap().take_decision();
             if let Some(decision) = decision {
-                self.battle.resume_after_team_verification(Instant::now());
+                self.battle.reset_battle_load_wait(Instant::now());
                 self.transition_lifecycle(RunnerLifecycleEvent::VerificationResolved);
                 self.emit(
                     "TeamConfirm",

@@ -21,6 +21,7 @@ import { EnhancementPage } from "./features/enhancement/EnhancementPage";
 import { CraftEssenceEnhancementPage } from "./features/craft-essence-enhancement/CraftEssenceEnhancementPage";
 import { FriendPointSummonPage } from "./features/friend-point-summon/FriendPointSummonPage";
 import { RankUpQuestPage } from "./features/rank-up-quest/RankUpQuestPage";
+import { InterludePage } from "./features/interlude/InterludePage";
 import { AutoBattlePage } from "./features/auto-battle/AutoBattlePage";
 import { HomePage } from "./features/home/HomePage";
 import { DebugPage } from "./features/debug/DebugPage";
@@ -88,6 +89,7 @@ type View =
   | "craftEssenceEnhancement"
   | "friendPointSummon"
   | "rankUpQuest"
+  | "interlude"
   | "autoBattle"
   | "packetCapture"
   | "debug"
@@ -996,6 +998,11 @@ function App({
     setView("rankUpQuest");
   }, []);
 
+  const handleOpenInterlude = useCallback(() => {
+    if (!featureToggles.interlude || isNavigationLocked()) return;
+    setView("interlude");
+  }, [isNavigationLocked]);
+
   const handleOpenAutoBattle = useCallback(() => {
     if (!featureToggles.autoBattle) return;
     setView("autoBattle");
@@ -1104,6 +1111,7 @@ function App({
               showSummon={featureToggles.friendPointSummon}
               showEnhancement={featureToggles.craftEssenceEnhancement}
               showRankUpQuest={featureToggles.rankUpQuest}
+              showInterlude={featureToggles.interlude}
               showServantEnhancement={featureToggles.servantEnhancement}
               showAutoBattle={featureToggles.autoBattle}
               onSelectFigure={handleSelectHomeFigure}
@@ -1111,6 +1119,7 @@ function App({
               onOpenSummon={handleOpenFriendPointSummon}
               onOpenCraftEssenceEnhancement={handleOpenCraftEssenceEnhancement}
               onOpenRankUpQuest={handleOpenRankUpQuest}
+              onOpenInterlude={handleOpenInterlude}
               onOpenServantEnhancement={handleOpenServantEnhancement}
               onOpenAutoBattle={handleOpenAutoBattle}
               onOpenBench={featureToggles.bench ? handleOpenBench : undefined}
@@ -1157,6 +1166,15 @@ function App({
               onLogEntry={appendOperationLog}
               onUpdateProject={handleUpdateProject}
               battleRunStatus={battleRunStatus}
+            />
+          ) : view === "interlude" && featureToggles.interlude ? (
+            <InterludePage
+              servants={servants}
+              craftEssences={craftEssences}
+              onBack={handleOpenHome}
+              onAutomationStart={() => handleBattleAutomationStart(null)}
+              onAutomationStartFailed={handleBattleAutomationStartFailed}
+              onLogEntry={appendOperationLog}
             />
           ) : view === "enhancement" && featureToggles.servantEnhancement ? (
             <EnhancementPage
