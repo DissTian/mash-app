@@ -930,6 +930,26 @@
         "main": {}
       }
     },
+    "FormationConditionDialog": {
+      "detect": {
+        "requiredTemplates": [
+          {
+            "template": "interlude/text_formation_condition",
+            "region": { "x": 0.38, "y": 0.08, "w": 0.24, "h": 0.12 },
+            "threshold": 0.78,
+            "templateReferenceWidth": 1920
+          },
+          {
+            "template": "interlude/button_close",
+            "region": { "x": 0.37, "y": 0.78, "w": 0.26, "h": 0.12 },
+            "threshold": 0.75,
+            "templateReferenceWidth": 1920
+          }
+        ],
+        "priority": 29
+      },
+      "variants": { "main": {} }
+    },
     "FrontlineIncompleteDialog": {
       "detect": {
         "requiredTemplates": [

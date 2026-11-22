@@ -218,6 +218,7 @@ fn interlude_screens_round_trip() {
         ("ServantProfileUpdate", Screen::ServantProfileUpdate),
         ("InterludeUnlocked", Screen::InterludeUnlocked),
         ("FrontlineIncompleteDialog", Screen::FrontlineIncompleteDialog),
+        ("FormationConditionDialog", Screen::FormationConditionDialog),
     ] {
         assert_eq!(value.parse::<Screen>().unwrap(), screen);
         assert_eq!(screen.to_string(), value);

@@ -197,7 +197,8 @@ impl Runner {
                     last_detected_screen = screen;
                     self.handle_interlude_confirm(screen)?;
                 }
-                Screen::FormationLimitDialog
+                Screen::FormationConditionDialog
+                | Screen::FormationLimitDialog
                 | Screen::AutoFormationDialog
                 | Screen::EmptySlotAutoFormationDialog
                 | Screen::FormationEditor => {

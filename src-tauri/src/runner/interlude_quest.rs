@@ -1379,6 +1379,10 @@ impl Runner {
 
     pub(crate) fn handle_interlude_formation_dialog(&mut self, screen: Screen) {
         match screen {
+            Screen::FormationConditionDialog => {
+                self.emit("InterludeQuest", "关闭编成条件弹窗，随后重新检查受限栏位");
+                let _ = self.tap_at("InterludeQuest", FORMATION_LIMIT_CLOSE);
+            }
             Screen::FormationLimitDialog => {
                 self.emit("InterludeQuest", "关闭编队限制提示");
                 let _ = self.tap_at("InterludeQuest", FORMATION_LIMIT_CLOSE);

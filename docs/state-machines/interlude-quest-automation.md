@@ -17,6 +17,7 @@
 | `InterludeQuest` / `InterludeStage` | 扫描当前可见任务行；有可点行就选最上面一个，否则向下滚动；到底后结束或返回 02 |
 | `QuestConfirm` / `NoBattleQuestConfirm` | 点开始/任务开始 |
 | `TurnLimitQuestConfirm` | 允许时点开始，否则取消并把标题加入已处理 |
+| `FormationConditionDialog` | 队伍确认页可能被“编成条件”弹窗遮挡；优先点击关闭，再重新探测编队限制栏位 |
 | `FormationLimitDialog` | 关闭“编制限制”弹窗 |
 | `FrontlineIncompleteDialog` | 关闭「先发成员不足」，解除战斗加载等待并重新检查受限栏位；仍未找到栏位则停止，不重复点开始 |
 | `AutoFormationDialog` | 按配置点自动编成/不进行自动编成 |

@@ -7931,6 +7931,23 @@ def test_interlude_dialogue_choices_are_detected_by_box_and_sorted(
     assert all(choice["x"] == 0.5 for choice in choices)
 
 
+def test_interlude_formation_condition_dialog_precedes_team_confirmation():
+    _load_cn_interlude_assets()
+    image = _interlude_fixture("formation_condition_1920x1080.png")
+    for frame in (image, cv2.resize(image, (960, 540), interpolation=cv2.INTER_AREA)):
+        assert mash_cv._detect_screen(frame)["screen"] == "FormationConditionDialog"
+        assert mash_cv._detect_screen(frame, ["FormationConditionDialog", "TeamConfirmInterlude"])["screen"] == "FormationConditionDialog"
+        close = mash_cv._find_element(
+            frame,
+            "interlude/button_close",
+            {"x": 0.37, "y": 0.78, "w": 0.26, "h": 0.12},
+            0.75,
+            template_reference_width=1920,
+        )
+        assert close["found"]
+        assert (close["x"], close["y"]) == pytest.approx((0.5, 0.84), abs=0.01)
+
+
 @pytest.mark.parametrize("width", [1920, 960])
 def test_interlude_restricted_slot_and_frontline_dialog(width):
     _load_cn_interlude_assets()
