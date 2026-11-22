@@ -930,6 +930,37 @@
         "main": {}
       }
     },
+    "FormationSourceDialog": {
+      "detect": {
+        "requiredTemplates": [
+          {
+            "template": "interlude/text_formation_source",
+            "region": { "x": 0.38, "y": 0.10, "w": 0.24, "h": 0.12 },
+            "threshold": 0.78,
+            "templateReferenceWidth": 1920
+          },
+          {
+            "template": "interlude/button_support_formation_source",
+            "region": { "x": 0.54, "y": 0.62, "w": 0.22, "h": 0.14 },
+            "threshold": 0.78,
+            "templateReferenceWidth": 1920
+          }
+        ],
+        "priority": 32
+      },
+      "variants": {
+        "main": {
+          "elements": {
+            "support_formation_source": {
+              "template": "interlude/button_support_formation_source",
+              "region": { "x": 0.54, "y": 0.62, "w": 0.22, "h": 0.14 },
+              "threshold": 0.78,
+              "templateReferenceWidth": 1920
+            }
+          }
+        }
+      }
+    },
     "FormationConditionDialog": {
       "detect": {
         "requiredTemplates": [
@@ -1132,6 +1163,18 @@
               "template": "interlude/text_restricted_slot",
               "region": { "x": 0.02, "y": 0.34, "w": 0.97, "h": 0.19 },
               "threshold": 0.80,
+              "templateReferenceWidth": 1920
+            },
+            "restricted_slot_npc_badge": {
+              "template": "interlude/npc_badge",
+              "region": { "x": 0.03, "y": 0.25, "w": 0.20, "h": 0.17 },
+              "threshold": 0.68,
+              "templateReferenceWidth": 1920
+            },
+            "restricted_servant_required": {
+              "template": "interlude/text_restricted_servant_required",
+              "region": { "x": 0.35, "y": 0.32, "w": 0.32, "h": 0.16 },
+              "threshold": 0.88,
               "templateReferenceWidth": 1920
             }
           }

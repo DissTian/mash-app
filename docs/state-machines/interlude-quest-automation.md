@@ -17,23 +17,26 @@
 | `InterludeQuest` / `InterludeStage` | 扫描当前可见任务行；有可点行就选最上面一个，否则向下滚动；到底后结束或返回 02 |
 | `QuestConfirm` / `NoBattleQuestConfirm` | 点开始/任务开始 |
 | `TurnLimitQuestConfirm` | 允许时点开始，否则取消并把标题加入已处理 |
+| `FormationSourceDialog` | 点击「从助战中编队」进入助战选择；NPC 返回队伍后保留已提交状态，不再重复点击限制栏位 |
 | `FormationConditionDialog` | 队伍确认页可能被“编成条件”弹窗遮挡；优先点击关闭，再重新探测编队限制栏位 |
 | `FormationLimitDialog` | 关闭“编制限制”弹窗 |
 | `FrontlineIncompleteDialog` | 关闭「先发成员不足」，解除战斗加载等待并重新检查受限栏位；仍未找到栏位则停止，不重复点开始 |
 | `AutoFormationDialog` | 按配置点自动编成/不进行自动编成 |
 | `EmptySlotAutoFormationDialog` | 队伍有空位时点自动编成 |
 | `FormationEditor` | 点决定 |
-| `TeamConfirmInterlude` | 先检查空位里的「编队限制」文字；命中则点击对应栏位并仅选择 NPC；提交选择后，即使同一栏仍匹配限制文字，也先尝试开始战斗。若游戏提示「先发成员不足」，再有限重试 |
+| `TeamConfirmInterlude` | 先检查空位里的「编队限制」文字；命中限制文字后同时检查右侧编队条件说明：如果要求指定从者，不把 NPC 角标当作已满足条件，报告当前助战不符合并停止；否则只在受限栏位检测 NPC 角标，已存在则跳过点击，未存在才打开栏位选择 NPC。提交选择后，即使同一栏仍匹配限制文字，也先尝试开始战斗。若游戏提示「先发成员不足」，再有限重试 |
 | `TeamConfirm` | 同样先处理受限栏位；普通空位（`选择`占位）走自动编队，否则走普通开始任务 |
 | `SupportSelect` | 每次选关重置助战搜索状态；助战页稳定后，先探测 NPC 角标或「客将从者」，再应用配置的职阶筛选。识别到 NPC 但点击后未切页时，最多尝试 3 次再回退到普通助战筛选 |
 | `Dialog` / `DialogSkipConfirm` | 按选项框位置点最上面一项，否则尝试跳过；跳过确认点是 |
 | `BattleContinue` | 令咒可用且配置令咒时使用令咒，否则撤退 |
 | `CharmConfirm` | 点决定并重置战斗状态 |
 | `RetreatConfirm` | 匹配「是否要撤退？」和右侧「决定」，点击「决定」 |
-| `RetreatNotice` | 点关闭，再记录本次撤退并检查连续失败上限 |
+| `RetreatNotice` | 仅在本次运行有待确认撤退时点关闭，再记录撤退并检查连续失败上限；否则忽略该识别结果 |
 | `InterludeUnlocked` | 同时匹配「已开放！」和右侧「前往幕间物语」；点击检测到的右侧按钮，等待返回幕间列表 |
 | `Battle` / `Attack` / 结算 | 复用普通战斗与结算流程；看到战斗或结算就清除进战斗等待标记，结算 Continue 关闭后等待返回列表 |
 | `Unknown`（任务报酬） | 任务进行中或返回列表时，OCR 同时确认报酬标题和下方按钮后关闭；下一轮重新识别，允许连续弹出 |
+
+- `AwaitingReturn` 收到 `Unknown` 时，每 2 秒点击一次画面中部偏下区域尝试关闭遮挡页面；每次点击后重新识别，识别为列表、结算或其它页面即停止该等待点击。
 
 ## 任务列表
 

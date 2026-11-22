@@ -33,6 +33,8 @@ const MAX_DIALOGUE_SKIPS: u8 = 3;
 const MAX_NPC_SUPPORT_TAPS: u8 = 3;
 const RESULT_POPUP_TAP_INTERVAL: Duration = Duration::from_secs(3);
 const STAGE_MENU_RETRY_INTERVAL: Duration = Duration::from_secs(2);
+const RETURN_LIST_TAP_INTERVAL: Duration = Duration::from_secs(2);
+const RETURN_LIST_TAP: Point = Point::new(0.50, 0.80);
 const MAX_RESULT_POPUP_TAPS: u8 = 3;
 const MENU_BUTTON_REGION: NormRect = NormRect { x: 0.85, y: 0.80, w: 0.15, h: 0.20 };
 const STAGE_CONTINUE_PROMPT_REGION: NormRect = NormRect {
@@ -122,11 +124,14 @@ pub(crate) struct InterludeQuestRuntime {
     restricted_slot_opens: u8,
     selecting_restricted_npc: bool,
     restricted_slot_x: Option<f64>,
+    restricted_slot_filled: bool,
+    restricted_servant_required: bool,
     submitted_restricted_npc: bool,
     frontline_incomplete: bool,
     dialogue_skip_attempts: u8,
     dialogue_ocr_tick: u8,
     last_dialog_at: Option<Instant>,
+    last_return_list_tap: Option<Instant>,
 }
 
 impl InterludeQuestRuntime {
@@ -165,11 +170,14 @@ impl InterludeQuestRuntime {
             restricted_slot_opens: 0,
             selecting_restricted_npc: false,
             restricted_slot_x: None,
+            restricted_slot_filled: false,
+            restricted_servant_required: false,
             submitted_restricted_npc: false,
             frontline_incomplete: false,
             dialogue_skip_attempts: 0,
             dialogue_ocr_tick: 0,
             last_dialog_at: None,
+            last_return_list_tap: None,
         }
     }
 
@@ -201,6 +209,13 @@ impl InterludeQuestRuntime {
             && self.stage_waiting(Screen::Unknown)
             && self.stage_wait_polls.saturating_add(1)
                 < self.config.task.stage_recovery_retry_limit.max(1)
+    }
+
+    fn return_list_tap_due(&self, now: Instant) -> bool {
+        self.phase == InterludeQuestPhase::AwaitingReturn
+            && self.last_return_list_tap.is_none_or(|last| {
+                now.saturating_duration_since(last) >= RETURN_LIST_TAP_INTERVAL
+            })
     }
 
     fn stage_menu_retry_due(&self, now: Instant) -> bool {
@@ -311,6 +326,8 @@ impl InterludeQuestRuntime {
         self.restricted_slot_opens = 0;
         self.selecting_restricted_npc = false;
         self.restricted_slot_x = None;
+        self.restricted_slot_filled = false;
+        self.restricted_servant_required = false;
         self.submitted_restricted_npc = false;
         self.frontline_incomplete = false;
         if self.current_signature.as_deref() == Some(row.title_signature.as_str()) {
@@ -398,6 +415,7 @@ impl Runner {
         if let Some(runtime) = self.interlude_quest.as_mut() {
             runtime.phase = InterludeQuestPhase::AwaitingReturn;
             runtime.awaiting_battle_start = false;
+            runtime.last_return_list_tap = None;
         }
     }
 
@@ -1377,8 +1395,27 @@ impl Runner {
         }
     }
 
-    pub(crate) fn handle_interlude_formation_dialog(&mut self, screen: Screen) {
+    pub(crate) fn handle_interlude_formation_dialog(&mut self, screen: Screen) -> AutomationResult<()> {
         match screen {
+            Screen::FormationSourceDialog => {
+                self.reset_interlude_support_search();
+                if let Some(runtime) = self.interlude_quest.as_mut() {
+                    runtime.selecting_restricted_npc = true;
+                    runtime.restricted_servant_required = false;
+                    runtime.npc_support_taps = 0;
+                }
+                let button = self
+                    .sidecar()
+                    .find_element_by_name(None, "FormationSourceDialog", "support_formation_source")
+                    .recoverable()??;
+                if !button.found {
+                    return Err("未找到「从助战中编队」选项，无法填入指定 NPC".into());
+                }
+                self.emit("InterludeQuest", "选择从助战中编队");
+                if self.tap_at("InterludeQuest", Point::new(button.x, button.y)) {
+                    thread::sleep(ACTION_DELAY);
+                }
+            }
             Screen::FormationConditionDialog => {
                 self.emit("InterludeQuest", "关闭编成条件弹窗，随后重新检查受限栏位");
                 let _ = self.tap_at("InterludeQuest", FORMATION_LIMIT_CLOSE);
@@ -1419,6 +1456,7 @@ impl Runner {
             _ => {}
         }
         thread::sleep(ACTION_DELAY);
+        Ok(())
     }
 
     pub(crate) fn handle_interlude_battle_continue(&mut self) {
@@ -1513,6 +1551,20 @@ impl Runner {
         }
     }
 
+    pub(crate) fn tap_interlude_return_if_due(&mut self, screen: Screen) -> bool {
+        if screen != Screen::Unknown || !self.interlude_quest.as_mut().is_some_and(|runtime| {
+            runtime.return_list_tap_due(Instant::now())
+        }) {
+            return false;
+        }
+        self.interlude_quest.as_mut().unwrap().last_return_list_tap = Some(Instant::now());
+        self.emit("InterludeQuest", "等待返回列表，点击游戏界面继续");
+        if self.tap_at("InterludeQuest", RETURN_LIST_TAP) {
+            thread::sleep(ACTION_DELAY);
+        }
+        true
+    }
+
     pub(crate) fn tap_interlude_result_popup_if_due(&mut self, previous: Screen) -> bool {
         if !self.interlude_quest.as_mut().is_some_and(|runtime| {
             runtime.should_tap_result_popup(previous, Instant::now())
@@ -1600,6 +1652,11 @@ impl Runner {
     }
 
     pub(crate) fn handle_interlude_retreat_notice(&mut self) {
+        let pending = self.interlude_quest.as_ref().is_some_and(|runtime| runtime.retreat_pending);
+        if !pending {
+            self.emit_debug("InterludeQuest", "当前没有等待确认的撤退请求，忽略撤退提示识别");
+            return;
+        }
         self.emit("InterludeQuest", "关闭撤退提示");
         if self.tap_at("InterludeQuest", RETREAT_NOTICE_CLOSE) {
             let reached_limit = self.interlude_quest.as_mut().is_some_and(|runtime| {
@@ -1728,9 +1785,28 @@ impl Runner {
             .sidecar()
             .find_element_by_name(None, "TeamConfirmInterlude", "restricted_slot")
             .recoverable()??;
-        let reopen_restricted = restricted.found && self.interlude_quest.as_ref().is_some_and(|runtime| {
-            runtime.should_open_restricted_slot(restricted.x)
-        });
+        let restricted_npc = self
+            .sidecar()
+            .find_element_by_name(None, "TeamConfirmInterlude", "restricted_slot_npc_badge")
+            .recoverable()??;
+        let servant_required = self
+            .sidecar()
+            .find_element_by_name(None, "TeamConfirmInterlude", "restricted_servant_required")
+            .recoverable()??;
+        if let Some(runtime) = self.interlude_quest.as_mut() {
+            runtime.restricted_servant_required = servant_required.found;
+            runtime.restricted_slot_filled = restricted.found
+                && if servant_required.found { runtime.submitted_restricted_npc } else { restricted_npc.found };
+        }
+        let reopen_restricted = restricted.found
+            && !restricted_npc.found
+            && self.interlude_quest.as_ref().is_some_and(|runtime| {
+                if servant_required.found {
+                    !runtime.submitted_restricted_npc
+                } else {
+                    runtime.should_open_restricted_slot(restricted.x)
+                }
+            });
         if reopen_restricted {
             let Some(runtime) = self.interlude_quest.as_mut() else {
                 return Ok(());
@@ -1743,6 +1819,7 @@ impl Runner {
             runtime.restricted_slot_x = Some(restricted.x);
             runtime.submitted_restricted_npc = false;
             runtime.frontline_incomplete = false;
+            runtime.restricted_slot_filled = false;
             runtime.npc_support_taps = 0;
             self.reset_interlude_support_search();
             self.emit("InterludeQuest", "检测到编队限制栏位，打开 NPC 助战选择");
@@ -1752,6 +1829,9 @@ impl Runner {
             return Ok(());
         }
         if let Some(runtime) = self.interlude_quest.as_mut() {
+            if runtime.restricted_servant_required && !runtime.submitted_restricted_npc {
+                return Err("编队限制要求指定从者，当前 NPC 尚未通过助战编队选项加入".into());
+            }
             if runtime.frontline_incomplete || (runtime.selecting_restricted_npc && !runtime.submitted_restricted_npc) {
                 return Err("先发成员不足或尚未选定 NPC，未找到可处理的编队限制栏位".into());
             }
@@ -1841,6 +1921,20 @@ mod tests {
         assert_eq!(task.max_consecutive_failures, 3);
         assert_eq!(task.max_repeat_attempts, 10);
         assert_eq!(task.dialogue_grace_seconds, 15);
+    }
+
+    #[test]
+    fn return_list_taps_are_limited_to_unknown_frames_and_spaced_out() {
+        let mut runtime = InterludeQuestRuntime::new(workflow());
+        let now = Instant::now();
+        assert!(!runtime.return_list_tap_due(now));
+        runtime.phase = InterludeQuestPhase::AwaitingReturn;
+        assert!(runtime.return_list_tap_due(now));
+        runtime.last_return_list_tap = Some(now);
+        assert!(!runtime.return_list_tap_due(now + Duration::from_secs(1)));
+        assert!(runtime.return_list_tap_due(now + RETURN_LIST_TAP_INTERVAL));
+        runtime.phase = InterludeQuestPhase::InQuest;
+        assert!(!runtime.return_list_tap_due(now + RETURN_LIST_TAP_INTERVAL));
     }
 
     #[test]
@@ -1961,6 +2055,12 @@ mod tests {
     }
 
     #[test]
+    fn retreat_notice_is_ignored_without_a_pending_retreat_request() {
+        let runtime = InterludeQuestRuntime::new(workflow());
+        assert!(!runtime.retreat_pending);
+    }
+
+    #[test]
     fn retreat_is_counted_once_when_the_notice_is_closed() {
         let mut runtime = InterludeQuestRuntime::new(workflow());
         runtime.config.task.max_consecutive_failures = 1;
@@ -1974,6 +2074,16 @@ mod tests {
     }
 
     #[test]
+    fn restricted_slot_rejects_npc_when_the_formation_requires_a_specific_servant() {
+        let mut runtime = InterludeQuestRuntime::new(workflow());
+        runtime.selecting_restricted_npc = true;
+        runtime.submitted_restricted_npc = true;
+        runtime.restricted_servant_required = true;
+        assert!(runtime.restricted_servant_required);
+        assert!(!runtime.restricted_slot_filled);
+    }
+
+    #[test]
     fn submitted_restricted_npc_allows_start_even_if_the_same_slot_label_remains() {
         let mut runtime = InterludeQuestRuntime::new(workflow());
         runtime.restricted_slot_x = Some(0.105);
@@ -1981,6 +2091,8 @@ mod tests {
         assert!(runtime.should_open_restricted_slot(0.105));
 
         runtime.submitted_restricted_npc = true;
+        runtime.restricted_slot_filled = true;
+        assert!(runtime.restricted_slot_filled);
         assert!(!runtime.should_open_restricted_slot(0.108));
         assert!(runtime.should_open_restricted_slot(0.27));
 

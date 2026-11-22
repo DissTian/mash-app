@@ -7931,6 +7931,17 @@ def test_interlude_dialogue_choices_are_detected_by_box_and_sorted(
     assert all(choice["x"] == 0.5 for choice in choices)
 
 
+def test_interlude_formation_source_dialog_is_not_misclassified_as_team_page():
+    _load_cn_interlude_assets()
+    image = _interlude_fixture("formation_source_1920x1080.png")
+    assert mash_cv._detect_screen(image)["screen"] == "FormationSourceDialog"
+    source = mash_cv._find_element_by_name(
+        image, "FormationSourceDialog", "support_formation_source"
+    )
+    assert source["found"]
+    assert (source["x"], source["y"]) == pytest.approx((0.656, 0.673), abs=0.015)
+
+
 def test_interlude_formation_condition_dialog_precedes_team_confirmation():
     _load_cn_interlude_assets()
     image = _interlude_fixture("formation_condition_1920x1080.png")
@@ -7961,6 +7972,26 @@ def test_interlude_restricted_slot_and_frontline_dialog(width):
     point = mash_cv._find_element_by_name(restricted, "TeamConfirmInterlude", "restricted_slot")
     assert point["found"]
     assert (point["x"], point["y"]) == pytest.approx((0.105, 0.429), abs=0.01)
+    assert not mash_cv._find_element_by_name(
+        restricted, "TeamConfirmInterlude", "restricted_slot_npc_badge"
+    )["found"]
+
+    filled = _interlude_fixture("restricted_slot_filled_1920x1080.png")
+    assert mash_cv._find_element_by_name(
+        filled, "TeamConfirmInterlude", "restricted_slot_npc_badge"
+    )["found"]
+    assert not mash_cv._find_element_by_name(
+        filled, "TeamConfirmInterlude", "restricted_servant_required"
+    )["found"]
+    assert mash_cv._find_element_by_name(filled, "TeamConfirmInterlude", "restricted_slot")["found"]
+
+    required = fixture("restricted_servant_required")
+    assert mash_cv._find_element_by_name(
+        required, "TeamConfirmInterlude", "restricted_servant_required"
+    )["found"]
+    assert not mash_cv._find_element_by_name(
+        required, "TeamConfirmInterlude", "restricted_slot_npc_badge"
+    )["found"]
 
     ordinary = fixture("ordinary_empty_slot")
     assert not mash_cv._find_element_by_name(ordinary, "TeamConfirmInterlude", "restricted_slot")["found"]

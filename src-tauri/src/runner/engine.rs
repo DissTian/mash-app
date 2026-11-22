@@ -125,11 +125,12 @@ impl Runner {
 
             self.resolve_pending_ap_recovery(screen);
 
-            if screen == Screen::Unknown
+            let interlude_return_tapped = self.tap_interlude_return_if_due(screen);
+            let interlude_result_tapped = screen == Screen::Unknown
                 && !self.interlude_stage_recovery_active()
                 && unknown_count.saturating_add(1) < timeout
-                && self.tap_interlude_result_popup_if_due(last_detected_screen)
-            {
+                && self.tap_interlude_result_popup_if_due(last_detected_screen);
+            if interlude_return_tapped || interlude_result_tapped {
                 if matches!(*self.state.lock().unwrap(), RunnerState::Error { .. }) {
                     return Ok(());
                 }
@@ -197,14 +198,15 @@ impl Runner {
                     last_detected_screen = screen;
                     self.handle_interlude_confirm(screen)?;
                 }
-                Screen::FormationConditionDialog
+                Screen::FormationSourceDialog
+                | Screen::FormationConditionDialog
                 | Screen::FormationLimitDialog
                 | Screen::AutoFormationDialog
                 | Screen::EmptySlotAutoFormationDialog
                 | Screen::FormationEditor => {
                     unknown_count = 0;
                     last_detected_screen = screen;
-                    self.handle_interlude_formation_dialog(screen);
+                    self.handle_interlude_formation_dialog(screen)?;
                 }
                 Screen::FrontlineIncompleteDialog => {
                     unknown_count = 0;
