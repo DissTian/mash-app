@@ -55,6 +55,17 @@ describe("InterludePage", () => {
     expect(screen.getByRole("button", { name: "开始幕间物语" })).toBeEnabled();
   });
 
+  it("defaults the stage recovery retry limit to 30 and saves changes", async () => {
+    renderPage();
+    const input = await screen.findByRole("spinbutton", { name: "舞台恢复重试次数" });
+    expect(input).toHaveValue(30);
+    fireEvent.change(input, { target: { value: "45" } });
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      "save_interlude_task_config",
+      { task: expect.objectContaining({ stageRecoveryRetryLimit: 45 }) },
+    ));
+  });
+
   it("opens the support settings dialog without a project row", async () => {
     renderPage();
     await screen.findByText("幕间物语");

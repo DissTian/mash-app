@@ -77,7 +77,10 @@ impl Runner {
                 }
             };
 
-            if !self.interlude_navigation_phase() && self.probe_interlude_dialogue(screen)? {
+            if !self.interlude_navigation_phase()
+                && !self.interlude_stage_recovery_active()
+                && self.probe_interlude_dialogue(screen)?
+            {
                 unknown_count = 0;
                 self.battle.reset_battle_load_wait(Instant::now());
                 thread::sleep(POLL_INTERVAL);
@@ -100,7 +103,7 @@ impl Runner {
                     thread::sleep(POLL_INTERVAL);
                     continue;
                 }
-                if self.interlude_dialogue_grace_active() {
+                if !self.interlude_stage_recovery_active() && self.interlude_dialogue_grace_active() {
                     self.emit_debug("InterludeQuest", "剧情播放中，暂不累计未知画面超时");
                     thread::sleep(POLL_INTERVAL);
                     continue;
@@ -112,6 +115,28 @@ impl Runner {
             }
 
             self.resolve_pending_ap_recovery(screen);
+
+            if screen == Screen::Unknown
+                && !self.interlude_stage_recovery_active()
+                && unknown_count.saturating_add(1) < timeout
+                && self.tap_interlude_result_popup_if_due(last_detected_screen)
+            {
+                if matches!(*self.state.lock().unwrap(), RunnerState::Error { .. }) {
+                    return Ok(());
+                }
+                unknown_count += 1;
+                thread::sleep(POLL_INTERVAL);
+                continue;
+            }
+
+            if self.handle_interlude_stage_wait(screen)? {
+                if matches!(*self.state.lock().unwrap(), RunnerState::Error { .. }) {
+                    return Ok(());
+                }
+                unknown_count = 0;
+                thread::sleep(POLL_INTERVAL);
+                continue;
+            }
 
             if !self.observe_interlude_quest_screen(screen) {
                 return Ok(());
@@ -340,7 +365,7 @@ impl Runner {
                         "Unknown",
                         &unknown_screen_wait_message(self.server, unknown_count, timeout),
                     );
-                    if is_battle_result_screen(last_detected_screen) {
+                    if !self.interlude_quest_active() && is_battle_result_screen(last_detected_screen) {
                         self.emit_debug("Unknown", "结算页可能被弹窗遮挡，尝试点击跳过区域");
                         if self.tap_at("Unknown", BATTLE_RESULT_POPUP_SKIP) {
                             thread::sleep(ACTION_DELAY);

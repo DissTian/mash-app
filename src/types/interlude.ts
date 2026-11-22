@@ -27,6 +27,7 @@ export interface InterludeTaskConfig {
   maxConsecutiveFailures: number;
   maxRepeatAttempts: number;
   dialogueGraceSeconds: number;
+  stageRecoveryRetryLimit: number;
 }
 
 export interface InterludeRowRegion {
@@ -83,4 +84,5 @@ export const DEFAULT_INTERLUDE_TASK: InterludeTaskConfig = {
   maxConsecutiveFailures: 3,
   maxRepeatAttempts: 10,
   dialogueGraceSeconds: 15,
+  stageRecoveryRetryLimit: 30,
 };

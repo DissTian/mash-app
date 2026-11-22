@@ -455,6 +455,21 @@ export function InterludePage({
                 />
               </label>
               <label>
+                <Text as="div" size="1" color="gray">舞台恢复重试次数</Text>
+                <TextField.Root
+                  type="number"
+                  min={1}
+                  value={config.stageRecoveryRetryLimit}
+                  disabled={running}
+                  onChange={(event) =>
+                    void saveConfig({
+                      ...config,
+                      stageRecoveryRetryLimit: Math.max(1, Math.trunc(event.currentTarget.valueAsNumber) || 30),
+                    })
+                  }
+                />
+              </label>
+              <label>
                 <Text as="div" size="1" color="gray">剧情宽限秒数</Text>
                 <TextField.Root
                   type="number"

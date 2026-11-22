@@ -326,5 +326,15 @@ mod tests {
         assert!(value.get("maxRepeatAttempts").is_some());
         let decoded: InterludeTaskConfig = serde_json::from_value(value).unwrap();
         assert_eq!(decoded.max_repeat_attempts, 10);
+        assert_eq!(decoded.stage_recovery_retry_limit, 30);
+    }
+
+    #[test]
+    fn stage_recovery_retry_limit_accepts_custom_value_and_defaults_for_old_configs() {
+        let old: InterludeTaskConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(old.stage_recovery_retry_limit, 30);
+        let custom: InterludeTaskConfig =
+            serde_json::from_value(serde_json::json!({"stageRecoveryRetryLimit": 45})).unwrap();
+        assert_eq!(custom.stage_recovery_retry_limit, 45);
     }
 }

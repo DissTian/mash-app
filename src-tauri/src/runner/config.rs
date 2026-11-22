@@ -128,6 +128,7 @@ pub struct InterludeTaskConfig {
     pub max_consecutive_failures: u32,
     pub max_repeat_attempts: u32,
     pub dialogue_grace_seconds: u32,
+    pub stage_recovery_retry_limit: u32,
 }
 
 impl Default for InterludeTaskConfig {
@@ -144,6 +145,7 @@ impl Default for InterludeTaskConfig {
             max_consecutive_failures: 3,
             max_repeat_attempts: 10,
             dialogue_grace_seconds: 15,
+            stage_recovery_retry_limit: 30,
         }
     }
 }
