@@ -10,15 +10,9 @@ use crate::screen::{InterludeQuestRow, NormRect, Point, Screen};
 
 const NAV_ENTRY_REGION: NormRect = NormRect {
     x: 0.50,
-    y: 0.28,
+    y: 0.13,
     w: 0.45,
-    h: 0.42,
-};
-const GATE_ENTRY_REGION: NormRect = NormRect {
-    x: 0.50,
-    y: 0.28,
-    w: 0.45,
-    h: 0.35,
+    h: 0.74,
 };
 const LIST_REGION: NormRect = NormRect {
     x: 0.48,
@@ -29,6 +23,7 @@ const LIST_REGION: NormRect = NormRect {
 const LIST_SCROLL_X: f64 = 0.90;
 const LIST_SCROLL_TOP: f64 = 0.30;
 const LIST_SCROLL_BOTTOM: f64 = 0.80;
+const NAVIGATION_SCROLL_TOP: Point = Point::new(0.982, 0.143);
 const MAIN_SCROLL_X: f64 = 0.85;
 const MAIN_SCROLL_TOP: f64 = 0.30;
 const MAIN_SCROLL_BOTTOM: f64 = 0.72;
@@ -37,8 +32,15 @@ const MAX_LIST_SWIPES: u8 = 24;
 const MAX_DIALOGUE_SKIPS: u8 = 3;
 const MAX_NPC_SUPPORT_TAPS: u8 = 3;
 const RESULT_POPUP_TAP_INTERVAL: Duration = Duration::from_secs(3);
+const STAGE_MENU_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 const MAX_RESULT_POPUP_TAPS: u8 = 3;
 const MENU_BUTTON_REGION: NormRect = NormRect { x: 0.85, y: 0.80, w: 0.15, h: 0.20 };
+const STAGE_CONTINUE_PROMPT_REGION: NormRect = NormRect {
+    x: 0.28,
+    y: 0.80,
+    w: 0.44,
+    h: 0.20,
+};
 const OPEN_MENU_REGION: NormRect = NormRect { x: 0.0, y: 0.65, w: 1.0, h: 0.35 };
 const DIALOGUE_SKIP_REGION: NormRect = NormRect {
     x: 0.86,
@@ -88,6 +90,8 @@ pub(crate) struct InterludeQuestRuntime {
     pub(crate) config: InterludeWorkflowConfig,
     pub(crate) phase: InterludeQuestPhase,
     pub(crate) current_list: InterludeListKind,
+    main_top_clicked: bool,
+    gate_top_clicked: bool,
     main_swipes: u8,
     gate_swipes: u8,
     list_swipes: u8,
@@ -109,6 +113,8 @@ pub(crate) struct InterludeQuestRuntime {
     charm_used_this_run: bool,
     navigation_done: bool,
     stage_wait_polls: u32,
+    last_stage_menu_tap: Option<Instant>,
+    saw_battle_result: bool,
     single_failed: bool,
     awaiting_battle_start: bool,
     npc_support_taps: u8,
@@ -123,6 +129,8 @@ impl InterludeQuestRuntime {
             config,
             phase: InterludeQuestPhase::NavigateMain,
             current_list: InterludeListKind::Root,
+            main_top_clicked: false,
+            gate_top_clicked: false,
             main_swipes: 0,
             gate_swipes: 0,
             list_swipes: 0,
@@ -142,6 +150,8 @@ impl InterludeQuestRuntime {
             charm_used_this_run: false,
             navigation_done: false,
             stage_wait_polls: 0,
+            last_stage_menu_tap: None,
+            saw_battle_result: false,
             single_failed: false,
             awaiting_battle_start: false,
             npc_support_taps: 0,
@@ -170,6 +180,23 @@ impl InterludeQuestRuntime {
         }
     }
 
+    fn can_recover_stage(&self) -> bool {
+        self.current_list == InterludeListKind::Stage && self.saw_battle_result
+    }
+
+    fn can_dismiss_stage_continue_prompt(&self) -> bool {
+        self.can_recover_stage()
+            && self.stage_waiting(Screen::Unknown)
+            && self.stage_wait_polls.saturating_add(1)
+                < self.config.task.stage_recovery_retry_limit.max(1)
+    }
+
+    fn stage_menu_retry_due(&self, now: Instant) -> bool {
+        self.last_stage_menu_tap.is_some_and(|last| {
+            now.saturating_duration_since(last) >= STAGE_MENU_RETRY_INTERVAL
+        })
+    }
+
     fn advance_stage_wait(&mut self) -> bool {
         self.stage_wait_polls = self.stage_wait_polls.saturating_add(1);
         self.stage_wait_polls >= self.config.task.stage_recovery_retry_limit.max(1)
@@ -178,6 +205,7 @@ impl InterludeQuestRuntime {
     fn enter_selected_row(&mut self, row: &InterludeQuestRow, kind: InterludeListKind) {
         self.note_clicked(row);
         self.stage_wait_polls = 0;
+        self.saw_battle_result = false;
         (self.phase, self.current_list) = if row.kind == "quickLink" {
             (InterludeQuestPhase::AwaitingStage, InterludeListKind::Stage)
         } else {
@@ -204,7 +232,13 @@ impl InterludeQuestRuntime {
     }
 
     fn observe_battle_started(&mut self, screen: Screen) {
-        if matches!(screen, Screen::Battle | Screen::Attack) || is_battle_result_screen(screen) {
+        let is_result = is_battle_result_screen(screen);
+        if is_result {
+            self.saw_battle_result = true;
+        } else if matches!(screen, Screen::Battle | Screen::Attack | Screen::InterludeQuest) {
+            self.saw_battle_result = false;
+        }
+        if matches!(screen, Screen::Battle | Screen::Attack) || is_result {
             self.awaiting_battle_start = false;
             if self.phase == InterludeQuestPhase::AwaitingDeparture {
                 self.phase = InterludeQuestPhase::InQuest;
@@ -535,6 +569,81 @@ impl Runner {
         ))
     }
 
+    pub(crate) fn try_interlude_stage_continue_prompt(&mut self) -> AutomationResult<bool> {
+        if self.interlude_stage_recovery_active()
+            || !self.interlude_quest.as_ref().is_some_and(
+                InterludeQuestRuntime::can_dismiss_stage_continue_prompt,
+            )
+        {
+            return Ok(false);
+        }
+        let prompt = self
+            .sidecar()
+            .probe_template(
+                None,
+                "enhancement/result_click_prompt",
+                STAGE_CONTINUE_PROMPT_REGION,
+                0.80,
+                1920,
+            )
+            .recoverable()?
+            .ok()
+            .filter(|result| result.found);
+        let Some(prompt) = prompt else {
+            return Ok(false);
+        };
+        if let Some(runtime) = self.interlude_quest.as_mut() {
+            runtime.advance_stage_wait();
+        }
+        self.emit("InterludeQuest", "检测到「请点击游戏界面」，点击关闭提示");
+        if self.tap_at("InterludeQuest", Point::new(prompt.x, prompt.y)) {
+            thread::sleep(ACTION_DELAY);
+        }
+        Ok(true)
+    }
+
+    pub(crate) fn try_interlude_stage_menu(&mut self, screen: Screen) -> AutomationResult<bool> {
+        if screen != Screen::Unknown
+            || self.interlude_stage_recovery_active()
+            || !self.interlude_quest.as_ref().is_some_and(|runtime| {
+                runtime.can_recover_stage() && runtime.stage_waiting(screen)
+            })
+        {
+            return Ok(false);
+        }
+        let Some(point) = self.probe_interlude_stage_menu()? else {
+            return Ok(false);
+        };
+        self.open_interlude_stage_menu(point);
+        Ok(true)
+    }
+
+    fn probe_interlude_stage_menu(&mut self) -> AutomationResult<Option<Point>> {
+        Ok(self.sidecar()
+            .find_element_with_reference_width(
+                None,
+                "interlude/button_stage_menu",
+                MENU_BUTTON_REGION,
+                0.90,
+                1920.0,
+            )
+            .recoverable()?
+            .ok()
+            .flatten())
+    }
+
+    fn open_interlude_stage_menu(&mut self, point: Point) {
+        self.emit("InterludeQuest", "检测到舞台右下角菜单，尝试返回终端");
+        if self.tap_at("InterludeQuest", point) {
+            if let Some(runtime) = self.interlude_quest.as_mut() {
+                runtime.phase = InterludeQuestPhase::RecoverStageMenu;
+                runtime.stage_wait_polls = 0;
+                runtime.last_stage_menu_tap = Some(Instant::now());
+            }
+            thread::sleep(ACTION_DELAY);
+        }
+    }
+
     /// Consume stalled stage frames before generic battle/unknown timeouts.
     pub(crate) fn handle_interlude_stage_wait(&mut self, screen: Screen) -> AutomationResult<bool> {
         let Some(runtime) = self.interlude_quest.as_mut() else {
@@ -546,6 +655,9 @@ impl Runner {
             runtime.current_list = InterludeListKind::Root;
             runtime.stage_wait_polls = 0;
             runtime.navigation_done = false;
+            runtime.saw_battle_result = false;
+            runtime.main_top_clicked = false;
+            runtime.gate_top_clicked = false;
             runtime.main_swipes = 0;
             runtime.gate_swipes = 0;
             runtime.list_swipes = 0;
@@ -574,24 +686,37 @@ impl Runner {
                 return Ok(true);
             }
             if exhausted {
-                return Err("舞台恢复失败：菜单中未找到「终端」，已停止".into());
+                return Err("舞台恢复失败：菜单未展开或未找到「终端」，已停止".into());
+            }
+            if self.interlude_quest.as_ref().is_some_and(|runtime| {
+                runtime.stage_menu_retry_due(Instant::now())
+            }) {
+                let menu = match self.probe_interlude_stage_menu()? {
+                    Some(point) => Some(point),
+                    None => self.find_interlude_navigation_label(MENU_BUTTON_REGION, &["菜单", "MENU"])?,
+                };
+                if let Some(point) = menu {
+                    self.emit("InterludeQuest", "舞台菜单尚未展开，重新点击菜单");
+                    if self.tap_at("InterludeQuest", point) {
+                        if let Some(runtime) = self.interlude_quest.as_mut() {
+                            runtime.last_stage_menu_tap = Some(Instant::now());
+                        }
+                        thread::sleep(ACTION_DELAY);
+                    }
+                }
             }
         } else if waiting_for_main {
             if exhausted {
                 return Err("舞台恢复失败：点击「终端」后未回到主界面，已停止".into());
             }
         } else if exhausted {
+            if !runtime.can_recover_stage() {
+                return Err("等待舞台画面切换超时（尚未识别到战斗结算），已停止".into());
+            }
             let Some(point) = self.find_interlude_navigation_label(MENU_BUTTON_REGION, &["菜单", "MENU"])? else {
                 return Err("舞台等待达到重试上限，右下角未检测到「菜单」，已停止".into());
             };
-            self.emit("InterludeQuest", "舞台等待达到重试上限，尝试通过菜单返回终端");
-            if self.tap_at("InterludeQuest", point) {
-                if let Some(runtime) = self.interlude_quest.as_mut() {
-                    runtime.phase = InterludeQuestPhase::RecoverStageMenu;
-                    runtime.stage_wait_polls = 0;
-                }
-                thread::sleep(ACTION_DELAY);
-            }
+            self.open_interlude_stage_menu(point);
         } else {
             let runtime = self.interlude_quest.as_ref().unwrap();
             self.emit("InterludeQuest", &format!(
@@ -628,6 +753,9 @@ impl Runner {
     }
 
     fn handle_interlude_navigate_main(&mut self) -> AutomationResult<()> {
+        if self.tap_interlude_navigation_top(false) {
+            return Ok(());
+        }
         if self.tap_named_entry("main/main_chaldea_gate", "迦勒底之门", NAV_ENTRY_REGION)? {
             if let Some(runtime) = self.interlude_quest.as_mut() {
                 runtime.phase = InterludeQuestPhase::NavigateGate;
@@ -635,7 +763,7 @@ impl Runner {
             thread::sleep(ACTION_DELAY);
             return Ok(());
         }
-        let swipes = {
+        {
             let Some(runtime) = self.interlude_quest.as_mut() else {
                 return Ok(());
             };
@@ -647,34 +775,18 @@ impl Runner {
                 );
                 return Ok(());
             }
-            runtime.main_swipes = runtime.main_swipes.saturating_add(1);
-            runtime.main_swipes
-        };
-        self.emit_debug("InterludeQuest", "主界面滚动查找迦勒底之门入口");
-        if swipes <= 3 {
-            // Seek the top first: finger moves down, content scrolls up.
-            let _ = self.swipe_with_settle_at(
-                "InterludeQuest",
-                Point::new(MAIN_SCROLL_X, MAIN_SCROLL_TOP),
-                Point::new(MAIN_SCROLL_X, MAIN_SCROLL_BOTTOM),
-                500,
-                250,
-            );
-        } else {
-            let _ = self.swipe_with_settle_at(
-                "InterludeQuest",
-                Point::new(MAIN_SCROLL_X, MAIN_SCROLL_BOTTOM),
-                Point::new(MAIN_SCROLL_X, MAIN_SCROLL_TOP),
-                500,
-                250,
-            );
+            runtime.main_swipes += 1;
         }
-        thread::sleep(ACTION_DELAY);
+        self.emit_debug("InterludeQuest", "主界面滚动查找迦勒底之门入口");
+        self.scroll_interlude_navigation_down();
         Ok(())
     }
 
     fn handle_interlude_navigate_gate(&mut self) -> AutomationResult<()> {
-        if self.tap_named_entry("main/main_interlude", "幕间物语", GATE_ENTRY_REGION)? {
+        if self.tap_interlude_navigation_top(true) {
+            return Ok(());
+        }
+        if self.tap_named_entry("main/main_interlude", "幕间物语", NAV_ENTRY_REGION)? {
             if let Some(runtime) = self.interlude_quest.as_mut() {
                 runtime.phase = InterludeQuestPhase::NeedRootList;
                 runtime.current_list = InterludeListKind::Root;
@@ -683,7 +795,7 @@ impl Runner {
             thread::sleep(ACTION_DELAY);
             return Ok(());
         }
-        let swipes = {
+        {
             let Some(runtime) = self.interlude_quest.as_mut() else {
                 return Ok(());
             };
@@ -695,29 +807,41 @@ impl Runner {
                 );
                 return Ok(());
             }
-            runtime.gate_swipes = runtime.gate_swipes.saturating_add(1);
-            runtime.gate_swipes
-        };
-        self.emit_debug("InterludeQuest", "迦勒底之门菜单滚动查找幕间物语入口");
-        if swipes <= 3 {
-            let _ = self.swipe_with_settle_at(
-                "InterludeQuest",
-                Point::new(MAIN_SCROLL_X, MAIN_SCROLL_TOP),
-                Point::new(MAIN_SCROLL_X, MAIN_SCROLL_BOTTOM),
-                500,
-                250,
-            );
-        } else {
-            let _ = self.swipe_with_settle_at(
-                "InterludeQuest",
-                Point::new(MAIN_SCROLL_X, MAIN_SCROLL_BOTTOM),
-                Point::new(MAIN_SCROLL_X, MAIN_SCROLL_TOP),
-                500,
-                250,
-            );
+            runtime.gate_swipes += 1;
         }
-        thread::sleep(ACTION_DELAY);
+        self.emit_debug("InterludeQuest", "迦勒底之门菜单滚动查找幕间物语入口");
+        self.scroll_interlude_navigation_down();
         Ok(())
+    }
+
+    fn tap_interlude_navigation_top(&mut self, gate: bool) -> bool {
+        let Some(runtime) = self.interlude_quest.as_mut() else {
+            return false;
+        };
+        let clicked = if gate {
+            &mut runtime.gate_top_clicked
+        } else {
+            &mut runtime.main_top_clicked
+        };
+        if std::mem::replace(clicked, true) {
+            return false;
+        }
+        self.emit_debug("InterludeQuest", "点击入口列表滚动条顶部");
+        if self.tap_at("InterludeQuest", NAVIGATION_SCROLL_TOP) {
+            thread::sleep(ACTION_DELAY);
+        }
+        true
+    }
+
+    fn scroll_interlude_navigation_down(&mut self) {
+        let _ = self.swipe_with_settle_at(
+            "InterludeQuest",
+            Point::new(MAIN_SCROLL_X, MAIN_SCROLL_BOTTOM),
+            Point::new(MAIN_SCROLL_X, MAIN_SCROLL_TOP),
+            500,
+            250,
+        );
+        thread::sleep(ACTION_DELAY);
     }
 
     fn tap_named_entry(
@@ -1422,6 +1546,23 @@ impl Runner {
         Ok(true)
     }
 
+    pub(crate) fn handle_interlude_unlocked(&mut self) -> AutomationResult<()> {
+        let button = self
+            .sidecar()
+            .find_element_by_name(None, "InterludeUnlocked", "go_to_interlude")
+            .recoverable()?
+            .ok()
+            .filter(|button| button.found);
+        if let Some(button) = button {
+            self.emit("InterludeQuest", "检测到新幕间物语，点击前往幕间物语");
+            if self.tap_at("InterludeQuest", Point::new(button.x, button.y)) {
+                self.mark_interlude_return_pending();
+                thread::sleep(ACTION_DELAY);
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn handle_interlude_profile_update(&mut self) {
         self.emit("InterludeQuest", "关闭从者资料更新提示");
         if self.tap_at("InterludeQuest", Point::new(0.340, 0.770)) {
@@ -1616,6 +1757,37 @@ mod tests {
     }
 
     #[test]
+    fn stage_menu_retries_wait_for_input_and_do_not_reset_the_wait_budget() {
+        let mut runtime = InterludeQuestRuntime::new(workflow());
+        runtime.phase = InterludeQuestPhase::RecoverStageMenu;
+        runtime.config.task.stage_recovery_retry_limit = 3;
+        let first_tap = Instant::now();
+        runtime.last_stage_menu_tap = Some(first_tap);
+        assert!(!runtime.advance_stage_wait());
+        assert!(!runtime.stage_menu_retry_due(first_tap + Duration::from_secs(1)));
+        let retry = first_tap + STAGE_MENU_RETRY_INTERVAL;
+        assert!(runtime.stage_menu_retry_due(retry));
+        runtime.last_stage_menu_tap = Some(retry);
+        assert!(!runtime.stage_menu_retry_due(retry));
+        assert!(!runtime.advance_stage_wait());
+        assert!(runtime.advance_stage_wait());
+    }
+
+    #[test]
+    fn stage_continue_prompt_does_not_delay_recovery_after_the_retry_limit() {
+        let mut runtime = InterludeQuestRuntime::new(workflow());
+        runtime.config.task.stage_recovery_retry_limit = 2;
+        assert!(!runtime.can_dismiss_stage_continue_prompt());
+        runtime.current_list = InterludeListKind::Stage;
+        runtime.phase = InterludeQuestPhase::AwaitingReturn;
+        runtime.observe_battle_started(Screen::BattleResultLoot);
+        assert!(runtime.can_dismiss_stage_continue_prompt());
+        assert!(!runtime.advance_stage_wait());
+        assert!(!runtime.can_dismiss_stage_continue_prompt());
+        assert!(runtime.advance_stage_wait());
+    }
+
+    #[test]
     fn stage_recovery_counts_only_stalled_stage_observations() {
         let mut runtime = InterludeQuestRuntime::new(workflow());
         runtime.config.task.stage_recovery_retry_limit = 2;
@@ -1668,9 +1840,15 @@ mod tests {
         };
         let mut quick_link = row.clone();
         quick_link.kind = "quickLink".into();
+        runtime.current_list = InterludeListKind::Stage;
+        runtime.observe_battle_started(Screen::BattleResultLoot);
+        assert!(runtime.can_recover_stage());
         runtime.enter_selected_row(&quick_link, InterludeListKind::Root);
         assert_eq!(runtime.phase, InterludeQuestPhase::AwaitingStage);
         assert_eq!(runtime.current_list, InterludeListKind::Stage);
+        assert!(runtime.stage_waiting(Screen::Unknown));
+        assert!(!runtime.can_recover_stage());
+        assert!(!runtime.can_dismiss_stage_continue_prompt());
         runtime.npc_support_taps = MAX_NPC_SUPPORT_TAPS;
         assert!(!runtime.can_try_npc_support());
         runtime.note_clicked(&row);

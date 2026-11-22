@@ -93,6 +93,15 @@ impl Runner {
             }
 
             if screen == Screen::Unknown {
+                if self.try_interlude_stage_continue_prompt()? || self.try_interlude_stage_menu(screen)? {
+                    if matches!(*self.state.lock().unwrap(), RunnerState::Error { .. }) {
+                        return Ok(());
+                    }
+                    unknown_count = 0;
+                    thread::sleep(POLL_INTERVAL);
+                    continue;
+                }
+
                 // A reward may appear immediately after the last dialogue.
                 // Keep the unknown-screen budget so an unresponsive popup
                 // cannot cause an unlimited number of close attempts.
@@ -207,6 +216,11 @@ impl Runner {
                     unknown_count = 0;
                     last_detected_screen = screen;
                     self.handle_interlude_charm_confirm();
+                }
+                Screen::InterludeUnlocked => {
+                    unknown_count = 0;
+                    last_detected_screen = screen;
+                    self.handle_interlude_unlocked()?;
                 }
                 Screen::ServantProfileUpdate => {
                     unknown_count = 0;

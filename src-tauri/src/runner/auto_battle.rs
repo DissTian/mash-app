@@ -153,6 +153,14 @@ pub(crate) fn equipment_readiness_from_texts(
     ready
 }
 
+fn ready_equipment_skills(skills: &[usize], readiness: Option<[bool; 3]>) -> Vec<usize> {
+    skills
+        .iter()
+        .copied()
+        .filter(|&slot| readiness.is_none_or(|ready| ready[slot]))
+        .collect()
+}
+
 /// Whether one normal-mode turn actually carries manual commands. A default
 /// turn created by the command editor is empty; it must not block takeover.
 pub(crate) fn battle_turn_has_manual_config(turn: &BattleTurn) -> bool {
@@ -545,39 +553,16 @@ impl Runner {
         Ok(true)
     }
 
-    /// Execute all planned mystic-code skills. In `readyOnly` the panel is
-    /// opened **once** to batch-read all three cooldowns, then only ready
-    /// skills are tapped; further taps reopen the panel only when needed.
+    /// Scan all three cooldowns on the first open and reuse the result for
+    /// the rest of this turn's mystic-code skills.
     fn execute_auto_equipment_skills(&mut self, skills: &[usize]) -> AutomationResult<bool> {
         if skills.is_empty() {
             return Ok(true);
         }
-        let ready_only = self
-            .auto_battle
-            .as_ref()
-            .is_some_and(|strategy| strategy.skill.mode == SkillUseMode::ReadyOnly);
-        if !ready_only {
-            for &skill_slot in skills {
-                if !self.execute_auto_equipment_skill(skill_slot)? {
-                    return Ok(false);
-                }
-            }
-            return Ok(true);
-        }
-
-        if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
+        if !self.open_auto_equipment_panel() {
             return Ok(false);
         }
-        thread::sleep(ACTION_DELAY + EQUIPMENT_PANEL_OPEN_EXTRA_WAIT);
-        let readiness = self.read_auto_equipment_readiness()?;
-        let ready: Vec<usize> = match &readiness {
-            Some(flags) => skills
-                .iter()
-                .copied()
-                .filter(|skill_slot| flags[(*skill_slot).min(2)])
-                .collect(),
-            None => skills.to_vec(),
-        };
+        let ready = ready_equipment_skills(skills, self.read_auto_equipment_readiness()?);
         if ready.is_empty() {
             self.emit("Battle", "自动战斗：御主礼装技能全部冷却中，关闭面板");
             if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
@@ -587,31 +572,25 @@ impl Runner {
             return Ok(true);
         }
 
-        // The panel opened for the probe is reused for the first ready skill.
-        let mut panel_open = true;
-        for &skill_slot in &ready {
-            if !panel_open {
-                if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
-                    return Ok(false);
-                }
-                thread::sleep(ACTION_DELAY + EQUIPMENT_PANEL_OPEN_EXTRA_WAIT);
+        // The first skill uses the panel opened for the scan. Each later
+        // skill needs a fresh panel, but uses the same scan result.
+        for (index, skill_slot) in ready.into_iter().enumerate() {
+            if self.is_cancelled() || (index > 0 && !self.open_auto_equipment_panel()) {
+                return Ok(false);
             }
             if !self.tap_auto_equipment_skill(skill_slot)? {
                 return Ok(false);
             }
-            // A successful skill closes the panel; the next ready skill needs
-            // a fresh panel.
-            panel_open = false;
         }
         Ok(true)
     }
 
-    fn execute_auto_equipment_skill(&mut self, skill_slot: usize) -> AutomationResult<bool> {
+    fn open_auto_equipment_panel(&mut self) -> bool {
         if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
-            return Ok(false);
+            return false;
         }
         thread::sleep(ACTION_DELAY + EQUIPMENT_PANEL_OPEN_EXTRA_WAIT);
-        self.tap_auto_equipment_skill(skill_slot)
+        true
     }
 
     /// Tap one equipment skill while its panel is already open.
@@ -627,6 +606,9 @@ impl Runner {
         }
         thread::sleep(SKILL_TAP_DELAY);
         let outcome = self.finish_auto_skill(None, &label, "")?;
+        if self.is_cancelled() || outcome == AutoSkillOutcome::Fatal {
+            return Ok(false);
+        }
         if outcome != AutoSkillOutcome::Used {
             // A skill that never activated leaves the mystic-code panel open;
             // tapping the panel button again restores the Battle HUD.
@@ -982,6 +964,17 @@ mod tests {
         ];
         let plan = auto_skill_plan(&strategy);
         assert_eq!(plan, vec![(0, 1), (2, 0)]);
+    }
+
+    #[test]
+    fn mystic_code_scan_keeps_only_ready_slots_in_order() {
+        let skills = [0, 1, 2];
+        assert_eq!(
+            ready_equipment_skills(&skills, Some([true, false, true])),
+            vec![0, 2]
+        );
+        assert!(ready_equipment_skills(&skills, Some([false; 3])).is_empty());
+        assert_eq!(ready_equipment_skills(&skills, None), skills);
     }
 
     #[test]

@@ -215,6 +215,7 @@ fn interlude_screens_round_trip() {
         ("RetreatNotice", Screen::RetreatNotice),
         ("CharmConfirm", Screen::CharmConfirm),
         ("ServantProfileUpdate", Screen::ServantProfileUpdate),
+        ("InterludeUnlocked", Screen::InterludeUnlocked),
     ] {
         assert_eq!(value.parse::<Screen>().unwrap(), screen);
         assert_eq!(screen.to_string(), value);

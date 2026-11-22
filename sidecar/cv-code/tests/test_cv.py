@@ -7931,6 +7931,36 @@ def test_interlude_dialogue_choices_are_detected_by_box_and_sorted(
     assert all(choice["x"] == 0.5 for choice in choices)
 
 
+def test_interlude_stage_menu_matches_the_bottom_right_button():
+    from mash_cv.cv import _find_element
+
+    _load_cn_interlude_assets()
+    region = {"x": 0.85, "y": 0.80, "w": 0.15, "h": 0.20}
+    def probe(fixture):
+        return _find_element(
+            _interlude_fixture(fixture), "interlude/button_stage_menu", region,
+            0.90, template_reference_width=1920,
+        )
+
+    menu = probe("stage_menu_960x540.png")
+    assert menu["found"]
+    assert (menu["x"], menu["y"]) == pytest.approx((0.926, 0.903), abs=0.01)
+    assert not probe("dialogue_960x540.png")["found"]
+    assert not probe("interlude_unlocked_960x540.png")["found"]
+
+
+def test_newly_unlocked_interlude_detects_the_go_button_not_profile_close():
+    _load_cn_interlude_assets()
+    unlocked = _interlude_fixture("interlude_unlocked_960x540.png")
+    profile = _interlude_fixture("servant_profile_update_960x540.png")
+    assert mash_cv._detect_screen(unlocked)["screen"] == "InterludeUnlocked"
+    button = mash_cv._find_element_by_name(unlocked, "InterludeUnlocked", "go_to_interlude")
+    assert button["found"]
+    assert (button["x"], button["y"]) == pytest.approx((0.657, 0.771), abs=0.01)
+    assert mash_cv._detect_screen(profile)["screen"] == "ServantProfileUpdate"
+    assert not mash_cv._find_element_by_name(profile, "InterludeUnlocked", "go_to_interlude")["found"]
+
+
 def test_interlude_dialogue_three_choices_without_text():
     from mash_cv.cv import _find_interlude_dialogue_choices
 

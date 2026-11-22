@@ -1236,6 +1236,37 @@
         "main": {}
       }
     },
+    "InterludeUnlocked": {
+      "detect": {
+        "requiredTemplates": [
+          {
+            "template": "interlude/text_interlude_unlocked",
+            "region": { "x": 0.40, "y": 0.61, "w": 0.20, "h": 0.14 },
+            "threshold": 0.75,
+            "templateReferenceWidth": 1920
+          },
+          {
+            "template": "interlude/button_go_to_interlude",
+            "region": { "x": 0.50, "y": 0.69, "w": 0.31, "h": 0.16 },
+            "threshold": 0.80,
+            "templateReferenceWidth": 1920
+          }
+        ],
+        "priority": 29
+      },
+      "variants": {
+        "main": {
+          "elements": {
+            "go_to_interlude": {
+              "template": "interlude/button_go_to_interlude",
+              "region": { "x": 0.50, "y": 0.69, "w": 0.31, "h": 0.16 },
+              "threshold": 0.80,
+              "templateReferenceWidth": 1920
+            }
+          }
+        }
+      }
+    },
     "ServantProfileUpdate": {
       "detect": {
         "requiredTemplates": [
