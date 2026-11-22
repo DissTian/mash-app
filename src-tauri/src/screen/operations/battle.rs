@@ -3,6 +3,17 @@
 use super::*;
 
 impl SidecarClient {
+    /// Locate ally portraits in the live skill-target dialog, left to right.
+    pub(crate) fn find_skill_targets(&mut self) -> Result<Vec<Point>, CvError> {
+        let req = request(SidecarCommand::FindSkillTargets, serde_json::json!({}))?;
+        let mut resp = self.send_recv(&req)?;
+        if let Some(error) = resp["error"].as_str() {
+            return Err(CvError::Other(error.to_string()));
+        }
+        serde_json::from_value(resp["targets"].take())
+            .map_err(|error| format!("invalid find_skill_targets response: {error}").into())
+    }
+
     /// Identify the suit and (optionally) servant occupying each fixed
     /// command-card slot on the attack screen.
     ///

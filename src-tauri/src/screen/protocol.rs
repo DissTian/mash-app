@@ -21,6 +21,7 @@ pub(super) enum SidecarCommand {
     FindRankUpQuestRows,
     FindRegion,
     FindSkillSlots,
+    FindSkillTargets,
     FindSupports,
     GetFrame,
     LoadConfig,

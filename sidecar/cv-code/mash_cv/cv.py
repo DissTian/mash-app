@@ -699,6 +699,27 @@ def _read_region_luma(img: np.ndarray, region: dict) -> dict:
     }
 
 
+def _find_skill_targets(img: np.ndarray) -> list[dict]:
+    """Find portraits in the centered ally picker, from left to right.
+
+    The picker darkens the battle behind it but draws the portraits at normal
+    brightness. Sample the upper portrait area, above the bright name band.
+    Only accept a complete layout so stray background pixels do not become
+    extra target positions.
+    """
+    h, w = img.shape[:2]
+    centers = (0.254, 0.3765, 0.499, 0.6215, 0.744)
+    visible = []
+    for x in centers:
+        crop = img[round(0.405 * h):round(0.480 * h),
+                   round((x - 0.032) * w):round((x + 0.032) * w)]
+        if crop.size and (crop.max(axis=2) >= 72).mean() >= 0.35:
+            visible.append(x)
+    if tuple(visible) not in (centers[2:3], centers[1::2], centers[::2]):
+        return []
+    return [{"x": x, "y": 0.474} for x in visible]
+
+
 # Only the strip that can contain the button's top frame edge. Extending this
 # down to the HP/name rows lets their white lines produce false positives.
 SKILL_SLOT_BAR_REGION = {"x": 0.0, "y": 0.735, "w": 0.76, "h": 0.070}
@@ -8440,6 +8461,12 @@ def _main_repl() -> None:
                             else:
                                 texts.append("")
                         _reply(req_id, {"texts": texts, "elapsed": elapsed})
+            elif action == "find_skill_targets":
+                img, err = _load_frame(cmd)
+                if img is None:
+                    _reply(req_id, {"error": err})
+                else:
+                    _reply(req_id, {"targets": _find_skill_targets(img)})
             elif action == "find_skill_slots":
                 img, err = _load_frame(cmd)
                 if img is None:

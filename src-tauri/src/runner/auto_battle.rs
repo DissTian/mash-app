@@ -161,6 +161,31 @@ fn ready_equipment_skills(skills: &[usize], readiness: Option<[bool; 3]>) -> Vec
         .collect()
 }
 
+/// Resolve a battle HUD slot to the packed layout in the target picker.
+fn auto_ally_target(
+    targets: &[Point],
+    front_slots: &[usize],
+    mode: SkillTargetMode,
+    owner_slot: Option<usize>,
+    selected_slot: u8,
+) -> Option<Point> {
+    let slot = match mode {
+        SkillTargetMode::LeftmostFront => return targets.first().copied(),
+        SkillTargetMode::OwnerSlot | SkillTargetMode::Probe => owner_slot.unwrap_or(0),
+        SkillTargetMode::SelectedSlot => usize::from(selected_slot.clamp(1, 3)) - 1,
+    };
+    if targets.len() == SKILL_TARGETS.len() {
+        return targets.get(slot).copied();
+    }
+    if front_slots.len() != targets.len() {
+        return None;
+    }
+    let index = front_slots
+        .iter()
+        .position(|&front_slot| front_slot == slot)?;
+    targets.get(index).copied()
+}
+
 /// Whether one normal-mode turn actually carries manual commands. A default
 /// turn created by the command editor is empty; it must not block takeover.
 pub(crate) fn battle_turn_has_manual_config(turn: &BattleTurn) -> bool {
@@ -457,6 +482,12 @@ impl Runner {
             ),
         );
 
+        let front_slots: Vec<usize> = presence
+            .iter()
+            .flat_map(|present| present.chunks_exact(3).enumerate())
+            .filter_map(|(slot, skills)| skills.contains(&true).then_some(slot))
+            .collect();
+
         for (servant_slot, skill_slot) in plan {
             if self.is_cancelled() {
                 return Ok(false);
@@ -484,11 +515,11 @@ impl Runner {
                 );
                 continue;
             }
-            if !self.execute_auto_servant_skill(servant_slot, skill_slot)? {
+            if !self.execute_auto_servant_skill(servant_slot, skill_slot, &front_slots)? {
                 return Ok(false);
             }
         }
-        if !self.execute_auto_equipment_skills(&equipment)? {
+        if !self.execute_auto_equipment_skills(&equipment, &front_slots)? {
             return Ok(false);
         }
 
@@ -505,6 +536,7 @@ impl Runner {
         &mut self,
         servant_slot: usize,
         skill_slot: usize,
+        front_slots: &[usize],
     ) -> AutomationResult<bool> {
         let servant = format!("servant_{}", servant_slot + 1);
         let skill = format!("skill_{}", skill_slot + 1);
@@ -522,7 +554,8 @@ impl Runner {
         }
         thread::sleep(SKILL_TAP_DELAY);
         let label_text = self.auto_skill_label_texts[servant_slot * 3 + skill_slot].clone();
-        let outcome = self.finish_auto_skill(Some(servant_slot), &label, &label_text)?;
+        let outcome =
+            self.finish_auto_skill(Some(servant_slot), front_slots, &label, &label_text)?;
         self.handle_auto_skill_outcome(outcome, &label)
     }
 
@@ -555,7 +588,11 @@ impl Runner {
 
     /// Scan all three cooldowns on the first open and reuse the result for
     /// the rest of this turn's mystic-code skills.
-    fn execute_auto_equipment_skills(&mut self, skills: &[usize]) -> AutomationResult<bool> {
+    fn execute_auto_equipment_skills(
+        &mut self,
+        skills: &[usize],
+        front_slots: &[usize],
+    ) -> AutomationResult<bool> {
         if skills.is_empty() {
             return Ok(true);
         }
@@ -578,7 +615,7 @@ impl Runner {
             if self.is_cancelled() || (index > 0 && !self.open_auto_equipment_panel()) {
                 return Ok(false);
             }
-            if !self.tap_auto_equipment_skill(skill_slot)? {
+            if !self.tap_auto_equipment_skill(skill_slot, front_slots)? {
                 return Ok(false);
             }
         }
@@ -594,7 +631,11 @@ impl Runner {
     }
 
     /// Tap one equipment skill while its panel is already open.
-    fn tap_auto_equipment_skill(&mut self, skill_slot: usize) -> AutomationResult<bool> {
+    fn tap_auto_equipment_skill(
+        &mut self,
+        skill_slot: usize,
+        front_slots: &[usize],
+    ) -> AutomationResult<bool> {
         let skill = format!("skill_{}", skill_slot + 1);
         let Some(pos) = equipment_skill_position(Some(&skill)) else {
             return Ok(true);
@@ -605,12 +646,12 @@ impl Runner {
             return Ok(false);
         }
         thread::sleep(SKILL_TAP_DELAY);
-        let outcome = self.finish_auto_skill(None, &label, "")?;
+        let outcome = self.finish_auto_skill(None, front_slots, &label, "")?;
         if self.is_cancelled() || outcome == AutoSkillOutcome::Fatal {
             return Ok(false);
         }
-        if outcome != AutoSkillOutcome::Used {
-            // A skill that never activated leaves the mystic-code panel open;
+        if outcome == AutoSkillOutcome::Skipped {
+            // A skill that never opened a target picker may leave the panel open;
             // tapping the panel button again restores the Battle HUD.
             if !self.tap_at("Battle", EQUIPMENT_BUTTON) {
                 return Ok(false);
@@ -623,6 +664,7 @@ impl Runner {
     fn finish_auto_skill(
         &mut self,
         owner_slot: Option<usize>,
+        front_slots: &[usize],
         label: &str,
         label_text: &str,
     ) -> AutomationResult<AutoSkillOutcome> {
@@ -654,18 +696,18 @@ impl Runner {
                     return Ok(AutoSkillOutcome::Skipped);
                 }
                 AutoSkillReaction::TargetPicker(close_point) => {
-                    let resolved = self.pick_auto_skill_target(owner_slot, close_point)?;
-                    if resolved {
+                    let outcome =
+                        self.pick_auto_skill_target(owner_slot, front_slots, close_point)?;
+                    if outcome == AutoSkillOutcome::Fatal {
+                        return Ok(outcome);
+                    }
+                    if outcome == AutoSkillOutcome::Used {
                         self.tap_skill_animation_skip_twice("自动战斗技能后加速");
                     }
                     if !self.wait_for_attack_button(BATTLE_SCREEN, AUTO_SKILL_WAIT_TIMEOUT)? {
                         self.emit_warn("Battle", "自动战斗：技能目标后等待攻击按钮超时");
                     }
-                    return Ok(if resolved {
-                        AutoSkillOutcome::Used
-                    } else {
-                        AutoSkillOutcome::Blocked
-                    });
+                    return Ok(outcome);
                 }
                 AutoSkillReaction::StatusPopup(point) => {
                     self.emit(
@@ -814,8 +856,9 @@ impl Runner {
     fn pick_auto_skill_target(
         &mut self,
         owner_slot: Option<usize>,
+        front_slots: &[usize],
         close_point: Point,
-    ) -> AutomationResult<bool> {
+    ) -> AutomationResult<AutoSkillOutcome> {
         let strategy = self.auto_battle.clone();
         let mode = strategy
             .as_ref()
@@ -825,31 +868,35 @@ impl Runner {
             .as_ref()
             .and_then(|strategy| strategy.skill_target.selected_slot)
             .unwrap_or(1);
-        let owner = owner_slot.unwrap_or(0).min(2);
-
-        let mut candidates: Vec<Point> = match mode {
-            SkillTargetMode::OwnerSlot => vec![SKILL_TARGETS[owner]],
-            SkillTargetMode::LeftmostFront => vec![SKILL_TARGETS[0]],
-            SkillTargetMode::SelectedSlot => {
-                vec![SKILL_TARGETS[usize::from(selected_slot.clamp(1, 3)) - 1]]
+        let targets = match self.sidecar().find_skill_targets().recoverable()? {
+            Ok(targets) => targets,
+            Err(error) => {
+                self.emit_debug("Battle", &format!("自动战斗：技能目标识别不可用：{error}"));
+                Vec::new()
             }
-            SkillTargetMode::Probe => vec![SKILL_TARGETS[owner], ENEMY_TARGETS[0]],
         };
-
-        for point in candidates.drain(..) {
-            if !self.tap_at("Battle", point) {
-                return Ok(false);
+        let ally = auto_ally_target(&targets, front_slots, mode, owner_slot, selected_slot);
+        let enemy = matches!(mode, SkillTargetMode::Probe).then_some(ENEMY_TARGETS[0]);
+        for point in ally.into_iter().chain(enemy) {
+            if self.is_cancelled() || !self.tap_at("Battle", point) {
+                return Ok(AutoSkillOutcome::Fatal);
             }
             thread::sleep(AUTO_TARGET_SETTLE);
             if !self.auto_target_picker_visible()? {
-                return Ok(true);
+                return Ok(AutoSkillOutcome::Used);
             }
         }
 
-        if self.tap_at("Battle", close_point) {
-            thread::sleep(AUTO_TARGET_SETTLE);
+        self.emit("Battle", "自动战斗：未选中技能目标，取消技能");
+        if self.is_cancelled() || !self.tap_at("Battle", close_point) {
+            return Ok(AutoSkillOutcome::Fatal);
         }
-        Ok(!self.auto_target_picker_visible()?)
+        thread::sleep(AUTO_TARGET_SETTLE);
+        if self.auto_target_picker_visible()? {
+            self.fail_action("Battle", "自动战斗技能", "无法关闭技能目标框".into());
+            return Ok(AutoSkillOutcome::Fatal);
+        }
+        Ok(AutoSkillOutcome::Blocked)
     }
 
     /// Close the servant-detail screen opened by tapping an empty skill slot.
@@ -872,11 +919,12 @@ impl Runner {
     }
 
     fn auto_target_picker_visible(&mut self) -> AutomationResult<bool> {
-        let matched = self
-            .sidecar()
-            .find_element_by_name(None, BATTLE_SCREEN, SKILL_TARGET_CLOSE_BUTTON_ELEMENT)
-            .recoverable()?;
-        Ok(matched.map(|element| element.found).unwrap_or(false))
+        let matched = self.sidecar().find_element_by_name(
+            None,
+            BATTLE_SCREEN,
+            SKILL_TARGET_CLOSE_BUTTON_ELEMENT,
+        )?;
+        Ok(matched.found)
     }
 
     /// Close one of the option dialogs the auto system cannot answer. Returns
@@ -964,6 +1012,50 @@ mod tests {
         ];
         let plan = auto_skill_plan(&strategy);
         assert_eq!(plan, vec![(0, 1), (2, 0)]);
+    }
+
+    #[test]
+    fn auto_skill_leftmost_uses_the_detected_layout_for_servant_and_equipment_skills() {
+        for positions in [&[0.499][..], &[0.3765, 0.6215], &[0.254, 0.499, 0.744]] {
+            let targets: Vec<_> = positions.iter().map(|&x| Point::new(x, 0.474)).collect();
+            for owner in [Some(2), None] {
+                let target =
+                    auto_ally_target(&targets, &[], SkillTargetMode::LeftmostFront, owner, 1);
+                assert_eq!(target.map(|point| point.x), Some(positions[0]));
+            }
+        }
+        assert!(auto_ally_target(&[], &[], SkillTargetMode::LeftmostFront, None, 1).is_none());
+    }
+
+    #[test]
+    fn auto_skill_compact_targets_preserve_original_hud_slots() {
+        let targets = [Point::new(0.3765, 0.474), Point::new(0.6215, 0.474)];
+        let front_slots = [0, 2];
+        assert_eq!(
+            auto_ally_target(
+                &targets,
+                &front_slots,
+                SkillTargetMode::OwnerSlot,
+                Some(2),
+                1
+            )
+            .map(|point| point.x),
+            Some(targets[1].x)
+        );
+        assert!(auto_ally_target(
+            &targets,
+            &front_slots,
+            SkillTargetMode::SelectedSlot,
+            None,
+            2
+        )
+        .is_none());
+        assert!(auto_ally_target(&targets, &[2], SkillTargetMode::SelectedSlot, None, 3).is_none());
+        let only = [Point::new(0.499, 0.474)];
+        assert_eq!(
+            auto_ally_target(&only, &[0], SkillTargetMode::OwnerSlot, None, 1).map(|point| point.x),
+            Some(0.499)
+        );
     }
 
     #[test]
