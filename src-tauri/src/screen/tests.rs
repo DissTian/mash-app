@@ -212,10 +212,12 @@ fn interlude_screens_round_trip() {
         ("Dialog", Screen::Dialog),
         ("DialogSkipConfirm", Screen::DialogSkipConfirm),
         ("BattleContinue", Screen::BattleContinue),
+        ("RetreatConfirm", Screen::RetreatConfirm),
         ("RetreatNotice", Screen::RetreatNotice),
         ("CharmConfirm", Screen::CharmConfirm),
         ("ServantProfileUpdate", Screen::ServantProfileUpdate),
         ("InterludeUnlocked", Screen::InterludeUnlocked),
+        ("FrontlineIncompleteDialog", Screen::FrontlineIncompleteDialog),
     ] {
         assert_eq!(value.parse::<Screen>().unwrap(), screen);
         assert_eq!(screen.to_string(), value);

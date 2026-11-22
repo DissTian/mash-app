@@ -18,16 +18,18 @@
 | `QuestConfirm` / `NoBattleQuestConfirm` | 点开始/任务开始 |
 | `TurnLimitQuestConfirm` | 允许时点开始，否则取消并把标题加入已处理 |
 | `FormationLimitDialog` | 关闭“编制限制”弹窗 |
+| `FrontlineIncompleteDialog` | 关闭「先发成员不足」，解除战斗加载等待并重新检查受限栏位；仍未找到栏位则停止，不重复点开始 |
 | `AutoFormationDialog` | 按配置点自动编成/不进行自动编成 |
 | `EmptySlotAutoFormationDialog` | 队伍有空位时点自动编成 |
 | `FormationEditor` | 点决定 |
-| `TeamConfirmInterlude` | 点战斗开始 |
-| `TeamConfirm` | 队伍有空位（`选择`占位）时点底部自动编队，否则走普通开始任务 |
+| `TeamConfirmInterlude` | 先检查空位里的「编队限制」文字；命中则点击对应栏位并仅选择 NPC；提交选择后，即使同一栏仍匹配限制文字，也先尝试开始战斗。若游戏提示「先发成员不足」，再有限重试 |
+| `TeamConfirm` | 同样先处理受限栏位；普通空位（`选择`占位）走自动编队，否则走普通开始任务 |
 | `SupportSelect` | 每次选关重置助战搜索状态；助战页稳定后，先探测 NPC 角标或「客将从者」，再应用配置的职阶筛选。识别到 NPC 但点击后未切页时，最多尝试 3 次再回退到普通助战筛选 |
 | `Dialog` / `DialogSkipConfirm` | 按选项框位置点最上面一项，否则尝试跳过；跳过确认点是 |
 | `BattleContinue` | 令咒可用且配置令咒时使用令咒，否则撤退 |
 | `CharmConfirm` | 点决定并重置战斗状态 |
-| `RetreatNotice` | 点关闭 |
+| `RetreatConfirm` | 匹配「是否要撤退？」和右侧「决定」，点击「决定」 |
+| `RetreatNotice` | 点关闭，再记录本次撤退并检查连续失败上限 |
 | `InterludeUnlocked` | 同时匹配「已开放！」和右侧「前往幕间物语」；点击检测到的右侧按钮，等待返回幕间列表 |
 | `Battle` / `Attack` / 结算 | 复用普通战斗与结算流程；看到战斗或结算就清除进战斗等待标记，结算 Continue 关闭后等待返回列表 |
 | `Unknown`（任务报酬） | 任务进行中或返回列表时，OCR 同时确认报酬标题和下方按钮后关闭；下一轮重新识别，允许连续弹出 |
@@ -58,7 +60,7 @@
 
 ## 失败与结束
 
-- 失败页撤退：当前标题加入已处理，继续下一个；令咒成功：重置 `BattleState` 继续战斗。
+- 失败页撤退：点「撤退」后，若出现二次确认则点「决定」；关闭已撤退提示后才把当前标题加入已处理并检查失败上限。令咒成功时重置 `BattleState` 继续战斗。
 - 连续失败达到配置值停止；AP 恢复耗尽由现有 AP 流程结束。
 - 全模式列表到底且没有可点行结束；结束时输出完成/跳过数量。
 - 完成计数按“标题不再出现”近似统计；多步任务只计一次。

@@ -154,7 +154,7 @@ impl Runner {
                 return Ok(());
             }
 
-            if self.handle_battle_load_screen(screen)? {
+            if screen != Screen::FrontlineIncompleteDialog && self.handle_battle_load_screen(screen)? {
                 if matches!(*self.state.lock().unwrap(), RunnerState::Error { .. }) {
                     return Ok(());
                 }
@@ -200,11 +200,15 @@ impl Runner {
                 Screen::FormationLimitDialog
                 | Screen::AutoFormationDialog
                 | Screen::EmptySlotAutoFormationDialog
-                | Screen::FormationEditor
-                | Screen::TeamConfirmInterlude => {
+                | Screen::FormationEditor => {
                     unknown_count = 0;
                     last_detected_screen = screen;
                     self.handle_interlude_formation_dialog(screen);
+                }
+                Screen::FrontlineIncompleteDialog => {
+                    unknown_count = 0;
+                    last_detected_screen = screen;
+                    self.handle_interlude_frontline_incomplete()?;
                 }
                 Screen::Dialog | Screen::DialogSkipConfirm => {}
                 Screen::BattleContinue => {
@@ -227,6 +231,11 @@ impl Runner {
                     last_detected_screen = screen;
                     self.handle_interlude_profile_update();
                 }
+                Screen::RetreatConfirm => {
+                    unknown_count = 0;
+                    last_detected_screen = screen;
+                    self.handle_interlude_retreat_confirm()?;
+                }
                 Screen::RetreatNotice => {
                     unknown_count = 0;
                     last_detected_screen = screen;
@@ -237,11 +246,11 @@ impl Runner {
                     last_detected_screen = screen;
                     self.handle_rank_up_quest()?;
                 }
-                Screen::TeamConfirm => {
+                Screen::TeamConfirm | Screen::TeamConfirmInterlude => {
                     unknown_count = 0;
                     last_detected_screen = screen;
                     if self.interlude_quest_active() {
-                        self.handle_interlude_team_confirm()?;
+                        self.handle_interlude_team_confirm(screen)?;
                     } else {
                         self.handle_team_confirm()?;
                     }
@@ -263,7 +272,11 @@ impl Runner {
                 Screen::ServantSelect => {
                     unknown_count = 0;
                     last_detected_screen = screen;
-                    self.handle_servant_select()?;
+                    if self.interlude_restricted_selection_active() {
+                        self.handle_interlude_support_select()?;
+                    } else {
+                        self.handle_servant_select()?;
+                    }
                 }
                 Screen::Battle => {
                     unknown_count = 0;

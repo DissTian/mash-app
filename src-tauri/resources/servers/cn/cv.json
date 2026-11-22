@@ -930,6 +930,26 @@
         "main": {}
       }
     },
+    "FrontlineIncompleteDialog": {
+      "detect": {
+        "requiredTemplates": [
+          {
+            "template": "interlude/text_frontline_incomplete",
+            "region": { "x": 0.36, "y": 0.08, "w": 0.28, "h": 0.12 },
+            "threshold": 0.80,
+            "templateReferenceWidth": 1920
+          },
+          {
+            "template": "interlude/button_close",
+            "region": { "x": 0.37, "y": 0.78, "w": 0.26, "h": 0.12 },
+            "threshold": 0.75,
+            "templateReferenceWidth": 1920
+          }
+        ],
+        "priority": 27
+      },
+      "variants": { "main": {} }
+    },
     "FormationLimitDialog": {
       "detect": {
         "requiredTemplates": [
@@ -1086,7 +1106,16 @@
         "priority": 10
       },
       "variants": {
-        "main": {}
+        "main": {
+          "elements": {
+            "restricted_slot": {
+              "template": "interlude/text_restricted_slot",
+              "region": { "x": 0.02, "y": 0.34, "w": 0.97, "h": 0.19 },
+              "threshold": 0.80,
+              "templateReferenceWidth": 1920
+            }
+          }
+        }
       }
     },
     "Dialog": {
@@ -1170,6 +1199,37 @@
       },
       "variants": {
         "main": {}
+      }
+    },
+    "RetreatConfirm": {
+      "detect": {
+        "requiredTemplates": [
+          {
+            "template": "interlude/text_retreat_confirm",
+            "region": { "x": 0.36, "y": 0.32, "w": 0.30, "h": 0.16 },
+            "threshold": 0.75,
+            "templateReferenceWidth": 1920
+          },
+          {
+            "template": "interlude/button_retreat_confirm_yes",
+            "region": { "x": 0.53, "y": 0.40, "w": 0.25, "h": 0.16 },
+            "threshold": 0.75,
+            "templateReferenceWidth": 1920
+          }
+        ],
+        "priority": 31
+      },
+      "variants": {
+        "main": {
+          "elements": {
+            "confirm_retreat": {
+              "template": "interlude/button_retreat_confirm_yes",
+              "region": { "x": 0.53, "y": 0.40, "w": 0.25, "h": 0.16 },
+              "threshold": 0.75,
+              "templateReferenceWidth": 1920
+            }
+          }
+        }
       }
     },
     "RetreatNotice": {

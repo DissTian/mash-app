@@ -7931,6 +7931,25 @@ def test_interlude_dialogue_choices_are_detected_by_box_and_sorted(
     assert all(choice["x"] == 0.5 for choice in choices)
 
 
+@pytest.mark.parametrize("width", [1920, 960])
+def test_interlude_restricted_slot_and_frontline_dialog(width):
+    _load_cn_interlude_assets()
+
+    def fixture(name):
+        image = _interlude_fixture(f"{name}_1920x1080.png")
+        return cv2.resize(image, (width, width * 9 // 16), interpolation=cv2.INTER_AREA)
+
+    restricted = fixture("restricted_slot")
+    assert mash_cv._detect_screen(restricted)["screen"] == "TeamConfirmInterlude"
+    point = mash_cv._find_element_by_name(restricted, "TeamConfirmInterlude", "restricted_slot")
+    assert point["found"]
+    assert (point["x"], point["y"]) == pytest.approx((0.105, 0.429), abs=0.01)
+
+    ordinary = fixture("ordinary_empty_slot")
+    assert not mash_cv._find_element_by_name(ordinary, "TeamConfirmInterlude", "restricted_slot")["found"]
+    assert mash_cv._detect_screen(fixture("frontline_incomplete"))["screen"] == "FrontlineIncompleteDialog"
+
+
 def test_interlude_stage_menu_matches_the_bottom_right_button():
     from mash_cv.cv import _find_element
 
@@ -7947,6 +7966,17 @@ def test_interlude_stage_menu_matches_the_bottom_right_button():
     assert (menu["x"], menu["y"]) == pytest.approx((0.926, 0.903), abs=0.01)
     assert not probe("dialogue_960x540.png")["found"]
     assert not probe("interlude_unlocked_960x540.png")["found"]
+
+
+def test_interlude_second_retreat_confirmation_detects_decide_button():
+    _load_cn_interlude_assets()
+    image = _interlude_fixture("retreat_confirm_960x540.png")
+    assert mash_cv._detect_screen(image)["screen"] == "RetreatConfirm"
+    button = mash_cv._find_element_by_name(image, "RetreatConfirm", "confirm_retreat")
+    assert button["found"]
+    assert (button["x"], button["y"]) == pytest.approx((0.652, 0.479), abs=0.01)
+    profile = _interlude_fixture("servant_profile_update_960x540.png")
+    assert mash_cv._detect_screen(profile)["screen"] != "RetreatConfirm"
 
 
 def test_newly_unlocked_interlude_detects_the_go_button_not_profile_close():
