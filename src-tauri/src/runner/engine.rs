@@ -148,6 +148,14 @@ impl Runner {
                 continue;
             }
 
+            if self.handle_interlude_navigation_wait(screen)? {
+                if matches!(*self.state.lock().unwrap(), RunnerState::Error { .. }) {
+                    return Ok(());
+                }
+                thread::sleep(POLL_INTERVAL);
+                continue;
+            }
+
             if !self.observe_interlude_quest_screen(screen) {
                 return Ok(());
             }
@@ -189,7 +197,7 @@ impl Runner {
                 | Screen::InterludeStage => {
                     unknown_count = 0;
                     last_detected_screen = screen;
-                    self.handle_interlude_quest_screen()?;
+                    self.handle_interlude_quest_screen(screen)?;
                 }
                 Screen::QuestConfirm
                 | Screen::TurnLimitQuestConfirm

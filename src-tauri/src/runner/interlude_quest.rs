@@ -28,6 +28,10 @@ const MAIN_SCROLL_X: f64 = 0.85;
 const MAIN_SCROLL_TOP: f64 = 0.30;
 const MAIN_SCROLL_BOTTOM: f64 = 0.72;
 const MAX_NAVIGATION_SWIPES: u8 = 8;
+const MAX_NAVIGATION_ATTEMPTS: u8 = 3;
+const NAVIGATION_SETTLE: Duration = Duration::from_millis(750);
+const NAVIGATION_RETRY_DELAY: Duration = Duration::from_secs(3);
+const NAVIGATION_SWITCH_TIMEOUT: Duration = Duration::from_secs(12);
 const MAX_LIST_SWIPES: u8 = 24;
 const MAX_DIALOGUE_SKIPS: u8 = 3;
 const MAX_NPC_SUPPORT_TAPS: u8 = 3;
@@ -88,6 +92,60 @@ pub(crate) enum InterludeListKind {
     Stage,
 }
 
+#[derive(Default)]
+struct InterludeNavigation {
+    observed: Option<(Screen, Instant)>,
+    last_attempt: Option<Instant>,
+    attempts: u8,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum NavigationGate {
+    Ready,
+    Wait,
+    Retry,
+    Confirmed,
+    TimedOut,
+}
+
+impl InterludeNavigation {
+    fn note_attempt(&mut self, at: Instant) {
+        self.last_attempt = Some(at);
+        self.attempts += 1;
+        self.observed = None;
+    }
+
+    fn gate(&mut self, source: Screen, target: Screen, screen: Screen, at: Instant) -> NavigationGate {
+        let stable = match self.observed {
+            Some((previous, since)) if previous == screen => {
+                at.saturating_duration_since(since) >= NAVIGATION_SETTLE
+            }
+            _ => {
+                self.observed = Some((screen, at));
+                false
+            }
+        };
+        let Some(attempted_at) = self.last_attempt else {
+            return if stable { NavigationGate::Ready } else { NavigationGate::Wait };
+        };
+        if stable && screen == target {
+            return NavigationGate::Confirmed;
+        }
+        let elapsed = at.saturating_duration_since(attempted_at);
+        if elapsed >= NAVIGATION_SWITCH_TIMEOUT {
+            return NavigationGate::TimedOut;
+        }
+        if stable && screen == source && elapsed >= NAVIGATION_RETRY_DELAY {
+            return if self.attempts < MAX_NAVIGATION_ATTEMPTS {
+                NavigationGate::Retry
+            } else {
+                NavigationGate::TimedOut
+            };
+        }
+        NavigationGate::Wait
+    }
+}
+
 pub(crate) struct InterludeQuestRuntime {
     pub(crate) config: InterludeWorkflowConfig,
     pub(crate) phase: InterludeQuestPhase,
@@ -96,6 +154,7 @@ pub(crate) struct InterludeQuestRuntime {
     gate_top_clicked: bool,
     main_swipes: u8,
     gate_swipes: u8,
+    navigation: InterludeNavigation,
     list_swipes: u8,
     result_popup_taps: u8,
     last_result_popup_tap: Option<Instant>,
@@ -144,6 +203,7 @@ impl InterludeQuestRuntime {
             gate_top_clicked: false,
             main_swipes: 0,
             gate_swipes: 0,
+            navigation: InterludeNavigation::default(),
             list_swipes: 0,
             result_popup_taps: 0,
             last_result_popup_tap: None,
@@ -713,6 +773,7 @@ impl Runner {
             runtime.gate_top_clicked = false;
             runtime.main_swipes = 0;
             runtime.gate_swipes = 0;
+            runtime.navigation = InterludeNavigation::default();
             runtime.list_swipes = 0;
             runtime.awaiting_battle_start = false;
             runtime.last_dialog_at = None;
@@ -787,13 +848,59 @@ impl Runner {
             .and_then(|ocr| interlude_navigation_label(&ocr.fragments, labels)))
     }
 
-    pub(crate) fn handle_interlude_quest_screen(&mut self) -> AutomationResult<()> {
+    /// Confirm the destination from fresh frames instead of assuming the touch worked.
+    pub(crate) fn handle_interlude_navigation_wait(&mut self, screen: Screen) -> AutomationResult<bool> {
+        let Some(runtime) = self.interlude_quest.as_mut() else {
+            return Ok(false);
+        };
+        let (source, target, template, label) = match runtime.phase {
+            InterludeQuestPhase::NavigateMain => (
+                Screen::Main, Screen::ChaldeaGate, "main/main_chaldea_gate", "迦勒底之门",
+            ),
+            InterludeQuestPhase::NavigateGate => (
+                Screen::ChaldeaGate, Screen::InterludeQuest, "main/main_interlude", "幕间物语",
+            ),
+            _ => return Ok(false),
+        };
+        let pending = runtime.navigation.last_attempt.is_some();
+        let gate = runtime.navigation.gate(source, target, screen, Instant::now());
+        match gate {
+            NavigationGate::Ready => Ok(false),
+            NavigationGate::Wait => Ok(pending || matches!(screen,
+                Screen::Main | Screen::ChaldeaGate | Screen::InterludeQuest | Screen::InterludeStage
+            )),
+            NavigationGate::Confirmed => {
+                runtime.navigation.last_attempt = None;
+                runtime.navigation.attempts = 0;
+                self.emit("InterludeQuest", &format!("已确认进入{label}"));
+                Ok(false)
+            }
+            NavigationGate::Retry => {
+                self.emit("InterludeQuest", &format!("仍在原页面，重新定位「{label}」入口"));
+                let clicked = self.tap_named_entry(template, label, NAV_ENTRY_REGION)?;
+                self.note_interlude_navigation_attempt(label, clicked);
+                Ok(true)
+            }
+            NavigationGate::TimedOut => Err(format!("点击入口后未确认进入「{label}」，已停止").into()),
+        }
+    }
+
+    fn note_interlude_navigation_attempt(&mut self, label: &str, clicked: bool) {
+        if let Some(runtime) = self.interlude_quest.as_mut() {
+            runtime.navigation.note_attempt(Instant::now());
+        }
+        if clicked {
+            self.emit("InterludeQuest", &format!("等待确认进入{label}…"));
+        }
+    }
+
+    pub(crate) fn handle_interlude_quest_screen(&mut self, screen: Screen) -> AutomationResult<()> {
         let Some(runtime) = self.interlude_quest.as_ref() else {
             return Ok(());
         };
         match runtime.phase {
-            InterludeQuestPhase::NavigateMain => self.handle_interlude_navigate_main(),
-            InterludeQuestPhase::NavigateGate => self.handle_interlude_navigate_gate(),
+            InterludeQuestPhase::NavigateMain if screen == Screen::Main => self.handle_interlude_navigate_main(),
+            InterludeQuestPhase::NavigateGate if screen == Screen::ChaldeaGate => self.handle_interlude_navigate_gate(),
             InterludeQuestPhase::NeedRootList => {
                 self.handle_interlude_list(InterludeListKind::Root)
             }
@@ -810,10 +917,7 @@ impl Runner {
             return Ok(());
         }
         if self.tap_named_entry("main/main_chaldea_gate", "迦勒底之门", NAV_ENTRY_REGION)? {
-            if let Some(runtime) = self.interlude_quest.as_mut() {
-                runtime.phase = InterludeQuestPhase::NavigateGate;
-            }
-            thread::sleep(ACTION_DELAY);
+            self.note_interlude_navigation_attempt("迦勒底之门", true);
             return Ok(());
         }
         {
@@ -840,12 +944,7 @@ impl Runner {
             return Ok(());
         }
         if self.tap_named_entry("main/main_interlude", "幕间物语", NAV_ENTRY_REGION)? {
-            if let Some(runtime) = self.interlude_quest.as_mut() {
-                runtime.phase = InterludeQuestPhase::NeedRootList;
-                runtime.current_list = InterludeListKind::Root;
-                runtime.navigation_done = true;
-            }
-            thread::sleep(ACTION_DELAY);
+            self.note_interlude_navigation_attempt("幕间物语", true);
             return Ok(());
         }
         {
@@ -1921,6 +2020,49 @@ mod tests {
         assert_eq!(task.max_consecutive_failures, 3);
         assert_eq!(task.max_repeat_attempts, 10);
         assert_eq!(task.dialogue_grace_seconds, 15);
+    }
+
+    #[test]
+    fn interlude_navigation_waits_for_stable_source_and_destination() {
+        for (source, target) in [
+            (Screen::Main, Screen::ChaldeaGate),
+            (Screen::ChaldeaGate, Screen::InterludeQuest),
+        ] {
+            let mut nav = InterludeNavigation::default();
+            let start = Instant::now();
+            assert_eq!(nav.gate(source, target, source, start), NavigationGate::Wait);
+            let tap = start + NAVIGATION_SETTLE;
+            assert_eq!(nav.gate(source, target, source, tap), NavigationGate::Ready);
+            nav.note_attempt(tap);
+
+            let first_target = tap + Duration::from_secs(1);
+            assert_eq!(nav.gate(source, target, target, first_target), NavigationGate::Wait);
+            assert_eq!(nav.gate(source, target, Screen::Unknown, first_target + Duration::from_millis(100)), NavigationGate::Wait);
+            let stable_target = tap + Duration::from_secs(2);
+            assert_eq!(nav.gate(source, target, target, stable_target), NavigationGate::Wait);
+            assert_eq!(nav.gate(source, target, target, stable_target + NAVIGATION_SETTLE), NavigationGate::Confirmed);
+        }
+    }
+
+    #[test]
+    fn interlude_navigation_retries_only_on_stable_source_and_stops_at_the_limit() {
+        let mut nav = InterludeNavigation::default();
+        let source = Screen::Main;
+        let target = Screen::ChaldeaGate;
+        let mut tap = Instant::now();
+        for attempt in 1..=MAX_NAVIGATION_ATTEMPTS {
+            nav.note_attempt(tap);
+            let retry = tap + NAVIGATION_RETRY_DELAY;
+            assert_eq!(nav.gate(source, target, Screen::Unknown, retry), NavigationGate::Wait);
+            assert_eq!(nav.gate(source, target, source, retry), NavigationGate::Wait);
+            tap = retry + NAVIGATION_SETTLE;
+            let expected = if attempt < MAX_NAVIGATION_ATTEMPTS { NavigationGate::Retry } else { NavigationGate::TimedOut };
+            assert_eq!(nav.gate(source, target, source, tap), expected);
+        }
+
+        let mut nav = InterludeNavigation::default();
+        nav.note_attempt(tap);
+        assert_eq!(nav.gate(source, target, Screen::Unknown, tap + NAVIGATION_SWITCH_TIMEOUT), NavigationGate::TimedOut);
     }
 
     #[test]

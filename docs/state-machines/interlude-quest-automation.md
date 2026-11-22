@@ -13,7 +13,7 @@
 
 | 画面 | 行为 |
 | --- | --- |
-| `Main` / `ChaldeaGate` | 各点击一次右侧滚动条顶部，从顶部逐屏向下查找迦勒底之门/幕间物语入口；找不到则失败 |
+| `Main` / `ChaldeaGate` | 页面识别稳定后，各点击一次右侧滚动条顶部，再逐屏向下查找入口。点击后等待目标页识别稳定；若仍稳定停在原页，重新定位同一入口并有限重试，不在原页执行下一步操作 |
 | `InterludeQuest` / `InterludeStage` | 扫描当前可见任务行；有可点行就选最上面一个，否则向下滚动；到底后结束或返回 02 |
 | `QuestConfirm` / `NoBattleQuestConfirm` | 点开始/任务开始 |
 | `TurnLimitQuestConfirm` | 允许时点开始，否则取消并把标题加入已处理 |
