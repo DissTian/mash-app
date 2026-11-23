@@ -237,6 +237,11 @@ impl Runner {
                     last_detected_screen = screen;
                     self.handle_interlude_unlocked()?;
                 }
+                Screen::MasterMissionUpdate => {
+                    unknown_count = 0;
+                    last_detected_screen = screen;
+                    self.handle_interlude_master_mission_update()?;
+                }
                 Screen::ServantProfileUpdate => {
                     unknown_count = 0;
                     last_detected_screen = screen;

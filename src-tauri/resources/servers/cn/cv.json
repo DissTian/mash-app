@@ -1390,6 +1390,37 @@
         }
       }
     },
+    "MasterMissionUpdate": {
+      "detect": {
+        "requiredTemplates": [
+          {
+            "template": "interlude/text_master_mission_update",
+            "region": { "x": 0.35, "y": 0.34, "w": 0.30, "h": 0.13 },
+            "threshold": 0.80,
+            "templateReferenceWidth": 1920
+          },
+          {
+            "template": "interlude/button_profile_close",
+            "region": { "x": 0.22, "y": 0.70, "w": 0.24, "h": 0.14 },
+            "threshold": 0.75,
+            "templateReferenceWidth": 1920
+          }
+        ],
+        "priority": 29
+      },
+      "variants": {
+        "main": {
+          "elements": {
+            "close": {
+              "template": "interlude/button_profile_close",
+              "region": { "x": 0.22, "y": 0.70, "w": 0.24, "h": 0.14 },
+              "threshold": 0.75,
+              "templateReferenceWidth": 1920
+            }
+          }
+        }
+      }
+    },
     "ServantProfileUpdate": {
       "detect": {
         "requiredTemplates": [

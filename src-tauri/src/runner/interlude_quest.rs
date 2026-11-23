@@ -1729,6 +1729,20 @@ impl Runner {
         Ok(())
     }
 
+    pub(crate) fn handle_interlude_master_mission_update(&mut self) -> AutomationResult<()> {
+        let close = self
+            .sidecar()
+            .find_element_by_name(None, "MasterMissionUpdate", "close")
+            .recoverable()??;
+        if close.found {
+            self.emit("InterludeQuest", "关闭御主任务更新提示");
+            if self.tap_at("InterludeQuest", Point::new(close.x, close.y)) {
+                thread::sleep(ACTION_DELAY);
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn handle_interlude_profile_update(&mut self) {
         self.emit("InterludeQuest", "关闭从者资料更新提示");
         if self.tap_at("InterludeQuest", Point::new(0.340, 0.770)) {

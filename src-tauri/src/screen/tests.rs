@@ -216,6 +216,7 @@ fn interlude_screens_round_trip() {
         ("RetreatNotice", Screen::RetreatNotice),
         ("CharmConfirm", Screen::CharmConfirm),
         ("ServantProfileUpdate", Screen::ServantProfileUpdate),
+        ("MasterMissionUpdate", Screen::MasterMissionUpdate),
         ("InterludeUnlocked", Screen::InterludeUnlocked),
         ("FrontlineIncompleteDialog", Screen::FrontlineIncompleteDialog),
         ("FormationConditionDialog", Screen::FormationConditionDialog),

@@ -8016,6 +8016,18 @@ def test_interlude_stage_menu_matches_the_bottom_right_button():
     assert not probe("interlude_unlocked_960x540.png")["found"]
 
 
+def test_interlude_master_mission_update_takes_priority_over_stage_list():
+    _load_cn_interlude_assets()
+    image = _interlude_fixture("master_mission_update_960x540.png")
+    assert mash_cv._detect_screen(image, ["InterludeStage"])["screen"] == "InterludeStage"
+    assert mash_cv._detect_screen(image)["screen"] == "MasterMissionUpdate"
+    close = mash_cv._find_element_by_name(image, "MasterMissionUpdate", "close")
+    assert close["found"]
+    assert (close["x"], close["y"]) == pytest.approx((0.34, 0.77), abs=0.01)
+    profile = _interlude_fixture("servant_profile_update_960x540.png")
+    assert mash_cv._detect_screen(profile)["screen"] == "ServantProfileUpdate"
+
+
 def test_interlude_second_retreat_confirmation_detects_decide_button():
     _load_cn_interlude_assets()
     image = _interlude_fixture("retreat_confirm_960x540.png")
