@@ -200,6 +200,7 @@ impl Runner {
                     self.handle_interlude_quest_screen(screen)?;
                 }
                 Screen::QuestConfirm
+                | Screen::DialogueBattleQuestConfirm
                 | Screen::TurnLimitQuestConfirm
                 | Screen::NoBattleQuestConfirm => {
                     unknown_count = 0;

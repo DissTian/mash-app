@@ -16,6 +16,7 @@
 | `Main` / `ChaldeaGate` | 页面识别稳定后，各点击一次右侧滚动条顶部，再逐屏向下查找入口。点击后等待目标页识别稳定；若仍稳定停在原页，重新定位同一入口并有限重试，不在原页执行下一步操作 |
 | `InterludeQuest` / `InterludeStage` | 扫描当前可见任务行；有可点行就选最上面一个，否则向下滚动；到底后结束或返回 02 |
 | `QuestConfirm` / `NoBattleQuestConfirm` | 点开始/任务开始 |
+| `DialogueBattleQuestConfirm` | 剧情选择会影响战斗的前置提示。点「开始」后继续等待普通任务确认 |
 | `TurnLimitQuestConfirm` | 允许时点开始，否则取消并把标题加入已处理 |
 | `FormationSourceDialog` | 点击「从助战中编队」进入助战选择；NPC 返回队伍后保留已提交状态，不再重复点击限制栏位 |
 | `FormationConditionDialog` | 队伍确认页可能被“编成条件”弹窗遮挡；优先点击关闭，再重新探测编队限制栏位 |

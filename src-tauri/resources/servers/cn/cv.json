@@ -897,6 +897,37 @@
         "main": {}
       }
     },
+    "DialogueBattleQuestConfirm": {
+      "detect": {
+        "requiredTemplates": [
+          {
+            "template": "interlude/text_dialogue_battle_variation",
+            "region": { "x": 0.25, "y": 0.29, "w": 0.43, "h": 0.19 },
+            "threshold": 0.80,
+            "templateReferenceWidth": 1920
+          },
+          {
+            "template": "interlude/button_dialogue_battle_start",
+            "region": { "x": 0.54, "y": 0.69, "w": 0.23, "h": 0.14 },
+            "threshold": 0.80,
+            "templateReferenceWidth": 1920
+          }
+        ],
+        "priority": 23
+      },
+      "variants": {
+        "main": {
+          "elements": {
+            "start": {
+              "template": "interlude/button_dialogue_battle_start",
+              "region": { "x": 0.54, "y": 0.69, "w": 0.23, "h": 0.14 },
+              "threshold": 0.80,
+              "templateReferenceWidth": 1920
+            }
+          }
+        }
+      }
+    },
     "TurnLimitQuestConfirm": {
       "detect": {
         "requiredTemplates": [

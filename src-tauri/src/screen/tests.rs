@@ -208,6 +208,7 @@ fn interlude_screens_round_trip() {
         ("InterludeStage", Screen::InterludeStage),
         ("QuestConfirm", Screen::QuestConfirm),
         ("TurnLimitQuestConfirm", Screen::TurnLimitQuestConfirm),
+        ("DialogueBattleQuestConfirm", Screen::DialogueBattleQuestConfirm),
         ("NoBattleQuestConfirm", Screen::NoBattleQuestConfirm),
         ("Dialog", Screen::Dialog),
         ("DialogSkipConfirm", Screen::DialogSkipConfirm),

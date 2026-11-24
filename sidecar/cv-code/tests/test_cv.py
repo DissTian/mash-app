@@ -8076,6 +8076,17 @@ def test_interlude_master_mission_update_takes_priority_over_stage_list():
     assert mash_cv._detect_screen(profile)["screen"] == "ServantProfileUpdate"
 
 
+def test_interlude_dialogue_battle_variation_is_a_separate_confirmation():
+    _load_cn_interlude_assets()
+    image = _interlude_fixture("dialogue_battle_variation_960x540.png")
+    assert mash_cv._detect_screen(image)["screen"] == "DialogueBattleQuestConfirm"
+    start = mash_cv._find_element_by_name(image, "DialogueBattleQuestConfirm", "start")
+    assert start["found"]
+    assert (start["x"], start["y"]) == pytest.approx((0.647, 0.738), abs=0.01)
+    regular = _interlude_fixture("interlude_list_960x540.png")
+    assert mash_cv._detect_screen(regular)["screen"] == "InterludeQuest"
+
+
 def test_interlude_second_retreat_confirmation_detects_decide_button():
     _load_cn_interlude_assets()
     image = _interlude_fixture("retreat_confirm_960x540.png")

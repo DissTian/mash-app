@@ -1367,6 +1367,18 @@ impl Runner {
 
     pub(crate) fn handle_interlude_confirm(&mut self, screen: Screen) -> AutomationResult<()> {
         match screen {
+            Screen::DialogueBattleQuestConfirm => {
+                let start = self
+                    .sidecar()
+                    .find_element_by_name(None, "DialogueBattleQuestConfirm", "start")
+                    .recoverable()??;
+                if start.found
+                    && self.tap_at("InterludeQuest", Point::new(start.x, start.y))
+                {
+                    self.emit("InterludeQuest", "已确认剧情选择会影响战斗，等待任务确认");
+                    thread::sleep(ACTION_DELAY);
+                }
+            }
             Screen::QuestConfirm => {
                 self.emit("InterludeQuest", "确认任务，点击开始");
                 if self.tap_at("InterludeQuest", QUEST_CONFIRM_START) {
