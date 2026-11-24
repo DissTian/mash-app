@@ -20,6 +20,7 @@
 | `FormationSourceDialog` | 点击「从助战中编队」进入助战选择；NPC 返回队伍后保留已提交状态，不再重复点击限制栏位 |
 | `FormationConditionDialog` | 队伍确认页可能被“编成条件”弹窗遮挡；优先点击关闭，再重新探测编队限制栏位 |
 | `FormationLimitDialog` | 关闭“编制限制”弹窗 |
+| `FormationUnsatisfiedDialog` | 关闭无法满足编成条件提示；回到队伍页后点返回箭头到助战选择，再退出到幕间列表。确认返回列表后才跳过本轮任务 |
 | `FrontlineIncompleteDialog` | 关闭「先发成员不足」，解除战斗加载等待并重新检查受限栏位；仍未找到栏位则停止，不重复点开始 |
 | `AutoFormationDialog` | 按配置点自动编成/不进行自动编成 |
 | `EmptySlotAutoFormationDialog` | 队伍有空位时点自动编成 |

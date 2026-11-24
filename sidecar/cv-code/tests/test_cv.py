@@ -7931,6 +7931,15 @@ def test_interlude_dialogue_choices_are_detected_by_box_and_sorted(
     assert all(choice["x"] == 0.5 for choice in choices)
 
 
+def test_interlude_unsatisfied_formation_dialog_is_detected_from_covered_team_page():
+    _load_cn_interlude_assets()
+    image = _interlude_fixture("formation_unsatisfied_960x540.png")
+    assert mash_cv._detect_screen(image)["screen"] == "FormationUnsatisfiedDialog"
+    close = mash_cv._find_element_by_name(image, "FormationUnsatisfiedDialog", "close")
+    assert close["found"]
+    assert (close["x"], close["y"]) == pytest.approx((0.5, 0.84), abs=0.01)
+
+
 def test_interlude_formation_source_dialog_is_not_misclassified_as_team_page():
     _load_cn_interlude_assets()
     image = _interlude_fixture("formation_source_1920x1080.png")
@@ -8014,6 +8023,15 @@ def test_interlude_stage_menu_matches_the_bottom_right_button():
     assert (menu["x"], menu["y"]) == pytest.approx((0.926, 0.903), abs=0.01)
     assert not probe("dialogue_960x540.png")["found"]
     assert not probe("interlude_unlocked_960x540.png")["found"]
+
+
+def test_interlude_formation_unsatisfied_dialog_is_distinct_from_team_confirm():
+    _load_cn_interlude_assets()
+    image = _interlude_fixture("formation_unsatisfied_960x540.png")
+    assert mash_cv._detect_screen(image)["screen"] == "FormationUnsatisfiedDialog"
+    close = mash_cv._find_element_by_name(image, "FormationUnsatisfiedDialog", "close")
+    assert close["found"]
+    assert (close["x"], close["y"]) == pytest.approx((0.5, 0.84), abs=0.01)
 
 
 def test_interlude_master_mission_update_takes_priority_over_stage_list():

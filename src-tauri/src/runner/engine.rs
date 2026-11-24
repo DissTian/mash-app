@@ -208,6 +208,7 @@ impl Runner {
                 }
                 Screen::FormationSourceDialog
                 | Screen::FormationConditionDialog
+                | Screen::FormationUnsatisfiedDialog
                 | Screen::FormationLimitDialog
                 | Screen::AutoFormationDialog
                 | Screen::EmptySlotAutoFormationDialog

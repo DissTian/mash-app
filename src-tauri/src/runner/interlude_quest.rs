@@ -182,6 +182,8 @@ pub(crate) struct InterludeQuestRuntime {
     npc_support_taps: u8,
     restricted_slot_opens: u8,
     selecting_restricted_npc: bool,
+    skip_task_after_formation_dialog: bool,
+    skip_task_returning_to_support: bool,
     restricted_slot_x: Option<f64>,
     restricted_slot_filled: bool,
     restricted_servant_required: bool,
@@ -229,6 +231,8 @@ impl InterludeQuestRuntime {
             npc_support_taps: 0,
             restricted_slot_opens: 0,
             selecting_restricted_npc: false,
+            skip_task_after_formation_dialog: false,
+            skip_task_returning_to_support: false,
             restricted_slot_x: None,
             restricted_slot_filled: false,
             restricted_servant_required: false,
@@ -400,6 +404,8 @@ impl InterludeQuestRuntime {
         self.npc_support_taps = 0;
         self.restricted_slot_opens = 0;
         self.selecting_restricted_npc = false;
+        self.skip_task_after_formation_dialog = false;
+        self.skip_task_returning_to_support = false;
         self.restricted_slot_x = None;
         self.restricted_slot_filled = false;
         self.restricted_servant_required = false;
@@ -558,6 +564,20 @@ impl Runner {
             {
                 return true;
             }
+            if runtime.skip_task_after_formation_dialog && screen == Screen::InterludeQuest {
+                let signature = runtime.current_signature.clone();
+                runtime.remember_handled(signature);
+                runtime.single_failed |= runtime.config.task.mode == InterludeQuestMode::Single;
+                runtime.phase = InterludeQuestPhase::NeedRootList;
+                runtime.current_list = InterludeListKind::Root;
+                runtime.skip_task_after_formation_dialog = false;
+                runtime.skip_task_returning_to_support = false;
+                runtime.selecting_restricted_npc = false;
+                runtime.submitted_restricted_npc = false;
+                runtime.list_swipes = 0;
+                self.battle = BattleState::new();
+                return true;
+            }
             let previous = runtime.phase;
             runtime.stage_wait_polls = 0;
             runtime.observe_battle_started(screen);
@@ -653,12 +673,31 @@ impl Runner {
                     _ => {}
                 },
                 InterludeQuestPhase::InQuest => {
-                    if screen == Screen::InterludeQuest || screen == Screen::InterludeStage {
+                    if runtime.skip_task_after_formation_dialog && screen == Screen::InterludeQuest {
+                        runtime.remember_handled(runtime.current_signature.clone());
+                        runtime.single_failed |= runtime.config.task.mode == InterludeQuestMode::Single;
+                        runtime.phase = InterludeQuestPhase::NeedRootList;
+                        runtime.current_list = InterludeListKind::Root;
+                        runtime.skip_task_after_formation_dialog = false;
+                        runtime.skip_task_returning_to_support = false;
+                        runtime.selecting_restricted_npc = false;
+                        runtime.current_signature = None;
+                        runtime.repeat_attempts = 0;
+                        runtime.list_swipes = 0;
+                        self.battle = BattleState::new();
+                    } else if screen == Screen::InterludeQuest || screen == Screen::InterludeStage {
                         runtime.phase = InterludeQuestPhase::AwaitingReturn;
                     }
                 }
                 InterludeQuestPhase::AwaitingReturn => match screen {
                     Screen::InterludeQuest => {
+                        if runtime.skip_task_after_formation_dialog {
+                            runtime.remember_handled(runtime.current_signature.clone());
+                            runtime.single_failed |= runtime.config.task.mode == InterludeQuestMode::Single;
+                            runtime.skip_task_after_formation_dialog = false;
+                            runtime.skip_task_returning_to_support = false;
+                            runtime.selecting_restricted_npc = false;
+                        }
                         runtime.phase = InterludeQuestPhase::NeedRootList;
                         runtime.current_list = InterludeListKind::Root;
                         runtime.current_signature = None;
@@ -1511,6 +1550,23 @@ impl Runner {
 
     pub(crate) fn handle_interlude_formation_dialog(&mut self, screen: Screen) -> AutomationResult<()> {
         match screen {
+            Screen::FormationUnsatisfiedDialog => {
+                if let Some(runtime) = self.interlude_quest.as_mut() {
+                    runtime.skip_task_after_formation_dialog = true;
+                    runtime.skip_task_returning_to_support = false;
+                    runtime.awaiting_battle_start = false;
+                }
+                self.battle = BattleState::new();
+                self.emit("InterludeQuest", "编成条件无法满足，关闭提示并返回助战选择");
+                let close = self
+                    .sidecar()
+                    .find_element_by_name(None, "FormationUnsatisfiedDialog", "close")
+                    .recoverable()??;
+                if close.found {
+                    let _ = self.tap_at("InterludeQuest", Point::new(close.x, close.y));
+                    thread::sleep(ACTION_DELAY);
+                }
+            }
             Screen::FormationSourceDialog => {
                 self.reset_interlude_support_search();
                 if let Some(runtime) = self.interlude_quest.as_mut() {
@@ -1818,6 +1874,19 @@ impl Runner {
     }
 
     pub(crate) fn handle_interlude_support_select(&mut self) -> AutomationResult<()> {
+        if self.interlude_quest.as_ref().is_some_and(|runtime| {
+            runtime.skip_task_after_formation_dialog
+        }) {
+            self.emit("InterludeQuest", "放弃编成条件不兼容的任务，返回幕间列表");
+            if self.tap_at("SupportSelect", Point::new(0.05, 0.05)) {
+                self.release_support_ocr()?;
+                if let Some(runtime) = self.interlude_quest.as_mut() {
+                    runtime.phase = InterludeQuestPhase::AwaitingReturn;
+                }
+                thread::sleep(ACTION_DELAY);
+            }
+            return Ok(());
+        }
         if !self.support_class_search.tab_done
             && support_screen_needs_settle(self.support_select_settle_ticks)
         {
@@ -1909,6 +1978,18 @@ impl Runner {
     }
 
     pub(crate) fn handle_interlude_team_confirm(&mut self, screen: Screen) -> AutomationResult<()> {
+        if self.interlude_quest.as_ref().is_some_and(|runtime| {
+            runtime.skip_task_after_formation_dialog && !runtime.skip_task_returning_to_support
+        }) {
+            self.emit("InterludeQuest", "无法满足编成条件，返回助战选择页");
+            if self.tap_at("InterludeQuest", Point::new(0.05, 0.05)) {
+                if let Some(runtime) = self.interlude_quest.as_mut() {
+                    runtime.skip_task_returning_to_support = true;
+                }
+                thread::sleep(ACTION_DELAY);
+            }
+            return Ok(());
+        }
         let restricted = self
             .sidecar()
             .find_element_by_name(None, "TeamConfirmInterlude", "restricted_slot")
@@ -2244,6 +2325,19 @@ mod tests {
         assert!(runtime.is_handled("quest"));
         assert!(!runtime.finish_retreat());
         assert_eq!(runtime.consecutive_failures, 1);
+    }
+
+    #[test]
+    fn formation_unsatisfied_marks_task_skipped_only_after_list_return() {
+        let mut runtime = InterludeQuestRuntime::new(workflow());
+        runtime.phase = InterludeQuestPhase::AwaitingReturn;
+        runtime.skip_task_after_formation_dialog = true;
+        runtime.current_signature = Some("blocked-task".into());
+        runtime.remember_handled(runtime.current_signature.clone());
+        runtime.phase = InterludeQuestPhase::NeedRootList;
+        runtime.current_signature = None;
+        assert!(runtime.is_handled("blocked-task"));
+        assert_eq!(runtime.phase, InterludeQuestPhase::NeedRootList);
     }
 
     #[test]
