@@ -96,12 +96,16 @@ const GRAIL_CONFIRM_TITLE_REGION: NormRect = NormRect {
     h: 0.12,
 };
 // Top message + result header strips on the ascension/grail screens; read with
-// the recognition-only model when those screens need text.
-const ASCENSION_MESSAGE_STRIP: NormRect = NormRect {
+// the recognition-only model when those screens need text. The message strip
+// must hold the longest CN message: `尚未达到圣杯转临所需的等级` (14 glyphs,
+// measured on a CN 1920×1080 grail page at x 0.310..0.570 / y 0.167..0.208).
+// The old 0.25-wide crop ended at x 0.54, dropped the trailing 级 and left the
+// whole phrase unmatched, so the post-grail page was never recognized.
+pub(super) const ENHANCEMENT_MESSAGE_STRIP: NormRect = NormRect {
     x: 0.29,
     y: 0.145,
-    w: 0.25,
-    h: 0.062,
+    w: 0.33,
+    h: 0.068,
 };
 const ENHANCEMENT_HEADER_STRIP: NormRect = NormRect {
     x: 0.20,
@@ -435,6 +439,36 @@ pub(super) fn decide_main_action(
         MainAction::SkipUnlitButton
     } else {
         MainAction::Recommend
+    }
+}
+
+/// Terminal state for the grail animation wait.
+///
+/// The grail does not always end on the `请点击游戏界面` result page: once the
+/// grail is applied the servant sits below the raised cap, so the game returns
+/// to the 圣杯转临 page with `尚未达到圣杯转临所需的等级` and a dim 强化 button
+/// (plus `前往强化从者`). That page must end the wait so the caller can walk
+/// back to the enhancement main screen; otherwise the wait keeps tapping the
+/// result prompt until it fails after `ANIMATION_TIMEOUT`.
+///
+/// `confirm_seen` records that the `是否进行「圣杯转临」？` dialog was observed,
+/// and `settled_grail` that the wait is looking at a still 圣杯转临 frame whose
+/// 强化 button reads dim. Requiring both keeps a still-bright initial page and
+/// a frame captured mid-animation from ending the wait early.
+pub(super) fn grail_wait_done(
+    screen: Screen,
+    text: &str,
+    confirm_seen: bool,
+    settled_grail: bool,
+) -> bool {
+    match screen {
+        Screen::Result | Screen::Main => true,
+        Screen::Grail => {
+            (confirm_seen && settled_grail)
+                || text.contains("无法进行圣杯转临")
+                || text.contains("尚未达到圣杯转临所需的等级")
+        }
+        _ => false,
     }
 }
 
@@ -1474,20 +1508,26 @@ impl ServantEnhancementRunner {
     }
 
     fn wait_for_grail_result(&mut self) -> Result<(), String> {
-        self.wait_for_animation("圣杯转临动画", |_runner, screen, ocr| {
+        let mut confirm_seen = false;
+        self.wait_for_animation("圣杯转临动画", |runner, screen, ocr| {
+            confirm_seen |= screen == Screen::GrailConfirm;
             let text = normalize_text(&ocr.full_text);
-            matches!(screen, Screen::Result | Screen::Main)
-                || (screen == Screen::Grail
-                    && (text.contains("无法进行圣杯转临")
-                        || text.contains("尚未达到圣杯转临所需的等级")))
+            // After a successful grail the game comes back to the 圣杯转临 page
+            // instead of staying on the result page, with a dim 强化 button
+            // because the servant is below the raised cap. Only a still frame
+            // counts, so a frame captured mid-animation cannot end the wait.
+            let settled_grail = screen == Screen::Grail
+                && !runner.button_is_bright().unwrap_or(true)
+                && runner.frame_is_stable().unwrap_or(false);
+            grail_wait_done(screen, &text, confirm_seen, settled_grail)
         })
     }
 
     /// Poll while the long servant dialogue plays. Periodic centre taps advance
     /// the dialogue, matching the game's own "tap to continue" affordance.
-    fn wait_for_animation<F>(&mut self, label: &str, done: F) -> Result<(), String>
+    fn wait_for_animation<F>(&mut self, label: &str, mut done: F) -> Result<(), String>
     where
-        F: Fn(&mut ServantEnhancementRunner, Screen, &OcrRegionResult) -> bool,
+        F: FnMut(&mut ServantEnhancementRunner, Screen, &OcrRegionResult) -> bool,
     {
         let start = Instant::now();
         let mut last_tap = Instant::now() - Duration::from_secs(4);
@@ -1692,7 +1732,7 @@ impl ServantEnhancementRunner {
             Screen::Main => &[MAIN_NAME_STRIP, MAIN_ACTION_STRIP],
             Screen::Recommend => &[RECOMMEND_TOGGLE_STRIP],
             Screen::Ascension | Screen::Grail => {
-                &[ASCENSION_MESSAGE_STRIP, ENHANCEMENT_HEADER_STRIP]
+                &[ENHANCEMENT_MESSAGE_STRIP, ENHANCEMENT_HEADER_STRIP]
             }
             _ => return Ok(String::new()),
         };

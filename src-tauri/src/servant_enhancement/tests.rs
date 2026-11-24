@@ -1,6 +1,6 @@
 use super::runner::{
     classify_screen, current_level_from_result, decide_main_action, filter_class_point,
-    main_shows_empty_selection, parse_bare_level, read_level_from_ocr,
+    grail_wait_done, main_shows_empty_selection, parse_bare_level, read_level_from_ocr,
     resolve_current_level_reads, EntryOutcome, MainAction, Screen, SelectionFailure,
     SelectionOutcome, SelectionProgress, SERVANT_FACE_MATCH_CROP, TWO_EXP_FACE_MATCH_CROP,
 };
@@ -49,6 +49,58 @@ fn main_action_uses_level_then_brightness_and_routes_without_material_inference(
     assert_eq!(decide_main_action(80, 100, false, true, true, false), MainAction::Grail);
     assert_eq!(decide_main_action(37, 80, false, false, false, false), MainAction::Recommend);
     assert_eq!(decide_main_action(37, 80, false, true, false, false), MainAction::SkipUnlitButton);
+}
+
+#[test]
+fn grail_wait_stops_on_the_post_grail_page_instead_of_tapping_forever() {
+    // Result/Main keep ending the wait immediately (enhancement result page).
+    for screen in [Screen::Result, Screen::Main] {
+        assert!(grail_wait_done(screen, "", false, false));
+    }
+    // A successful grail returns to the 圣杯转临 page, which reports
+    // `尚未达到圣杯转临所需的等级`; the widened message strip reads it in full,
+    // so the wait ends there and the caller taps 前往强化从者.
+    assert!(grail_wait_done(
+        Screen::Grail,
+        "尚未达到圣杯转临所需的等级",
+        false,
+        false
+    ));
+    assert!(grail_wait_done(
+        Screen::Grail,
+        "无法进行圣杯转临",
+        false,
+        false
+    ));
+    // Fallback that does not depend on OCR: the confirmation dialog was seen
+    // and the page came back settled with a dim 强化 button.
+    assert!(grail_wait_done(Screen::Grail, "", true, true));
+    // The initial 圣杯转临 page (bright button, dialog not seen yet) and a
+    // frame captured mid-animation must not end the wait early.
+    assert!(!grail_wait_done(Screen::Grail, "", false, true));
+    assert!(!grail_wait_done(Screen::Grail, "", true, false));
+    assert!(!grail_wait_done(Screen::GrailConfirm, "", true, true));
+    assert!(!grail_wait_done(Screen::Ascension, "", true, true));
+    assert!(!grail_wait_done(Screen::Unknown, "", true, true));
+}
+
+#[test]
+fn enhancement_message_strip_covers_the_longest_cn_message() {
+    // `尚未达到圣杯转临所需的等级` measured on a CN 1920×1080 grail page
+    // (level 94/96, the state left behind by a successful grail) spans
+    // x 0.310..0.570 / y 0.167..0.208. The old 0.25-wide crop ended at
+    // x 0.54, lost the trailing 级 and never matched the phrase.
+    let strip = crate::servant_enhancement::runner::ENHANCEMENT_MESSAGE_STRIP;
+    assert!(strip.x <= 0.310, "left edge clips the message: {strip:?}");
+    assert!(
+        strip.x + strip.w >= 0.570,
+        "right edge clips the message: {strip:?}"
+    );
+    assert!(strip.y <= 0.167, "top edge clips the message: {strip:?}");
+    assert!(
+        strip.y + strip.h >= 0.208,
+        "bottom edge clips the message: {strip:?}"
+    );
 }
 
 #[test]
