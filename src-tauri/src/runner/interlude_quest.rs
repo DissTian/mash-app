@@ -371,6 +371,21 @@ impl InterludeQuestRuntime {
         }
     }
 
+    fn observe_restricted_slot(&mut self, restricted: bool, npc_badge: bool, servant_required: bool) {
+        self.restricted_servant_required = servant_required;
+        self.restricted_slot_filled = restricted
+            && if servant_required {
+                self.submitted_restricted_npc
+            } else {
+                npc_badge
+            };
+        if self.restricted_slot_filled {
+            self.selecting_restricted_npc = false;
+            self.submitted_restricted_npc = true;
+            self.frontline_incomplete = false;
+        }
+    }
+
     fn should_open_restricted_slot(&self, x: f64) -> bool {
         self.frontline_incomplete
             || !self.submitted_restricted_npc
@@ -1907,9 +1922,11 @@ impl Runner {
             .find_element_by_name(None, "TeamConfirmInterlude", "restricted_servant_required")
             .recoverable()??;
         if let Some(runtime) = self.interlude_quest.as_mut() {
-            runtime.restricted_servant_required = servant_required.found;
-            runtime.restricted_slot_filled = restricted.found
-                && if servant_required.found { runtime.submitted_restricted_npc } else { restricted_npc.found };
+            runtime.observe_restricted_slot(
+                restricted.found,
+                restricted_npc.found,
+                servant_required.found,
+            );
         }
         let reopen_restricted = restricted.found
             && !restricted_npc.found
@@ -2227,6 +2244,21 @@ mod tests {
         assert!(runtime.is_handled("quest"));
         assert!(!runtime.finish_retreat());
         assert_eq!(runtime.consecutive_failures, 1);
+    }
+
+    #[test]
+    fn a_filled_restricted_npc_clears_selection_pending_state() {
+        let mut runtime = InterludeQuestRuntime::new(workflow());
+        runtime.selecting_restricted_npc = true;
+        runtime.submitted_restricted_npc = false;
+        runtime.frontline_incomplete = true;
+
+        runtime.observe_restricted_slot(true, true, false);
+
+        assert!(runtime.restricted_slot_filled);
+        assert!(!runtime.selecting_restricted_npc);
+        assert!(runtime.submitted_restricted_npc);
+        assert!(!runtime.frontline_incomplete);
     }
 
     #[test]
