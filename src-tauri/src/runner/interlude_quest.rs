@@ -41,6 +41,12 @@ const RETURN_LIST_TAP_INTERVAL: Duration = Duration::from_secs(2);
 const RETURN_LIST_TAP: Point = Point::new(0.50, 0.80);
 const MAX_RESULT_POPUP_TAPS: u8 = 3;
 const MENU_BUTTON_REGION: NormRect = NormRect { x: 0.85, y: 0.80, w: 0.15, h: 0.20 };
+const SKILL_POWER_UP_TITLE_REGION: NormRect = NormRect {
+    x: 0.58,
+    y: 0.16,
+    w: 0.30,
+    h: 0.20,
+};
 const STAGE_CONTINUE_PROMPT_REGION: NormRect = NormRect {
     x: 0.28,
     y: 0.80,
@@ -756,6 +762,33 @@ impl Runner {
             .recoverable()?
             .ok()
             .filter(|result| result.found);
+        let prompt = if prompt.is_none()
+            && self
+                .sidecar()
+                .probe_template(
+                    None,
+                    "interlude/text_skill_power_up",
+                    SKILL_POWER_UP_TITLE_REGION,
+                    0.80,
+                    1920,
+                )
+                .recoverable()?
+                .is_ok_and(|title| title.found)
+        {
+            self.sidecar()
+                .probe_template(
+                    None,
+                    "interlude/skill_power_up_continue_prompt",
+                    STAGE_CONTINUE_PROMPT_REGION,
+                    0.80,
+                    1920,
+                )
+                .recoverable()?
+                .ok()
+                .filter(|result| result.found)
+        } else {
+            prompt
+        };
         let Some(prompt) = prompt else {
             return Ok(false);
         };

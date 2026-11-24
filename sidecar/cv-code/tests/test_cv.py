@@ -8007,6 +8007,36 @@ def test_interlude_restricted_slot_and_frontline_dialog(width):
     assert mash_cv._detect_screen(fixture("frontline_incomplete"))["screen"] == "FrontlineIncompleteDialog"
 
 
+@pytest.mark.parametrize("width", [1920, 960])
+def test_interlude_skill_power_up_requires_title_and_continue_prompt(width):
+    from mash_cv.cv import _probe_template
+
+    _load_cn_interlude_assets()
+    image = _interlude_fixture("skill_power_up_1920x1080.png")
+    frame = cv2.resize(image, (width, width * 9 // 16), interpolation=cv2.INTER_AREA)
+    title_region = {"x": 0.58, "y": 0.16, "w": 0.30, "h": 0.20}
+    prompt_region = {"x": 0.28, "y": 0.80, "w": 0.44, "h": 0.20}
+
+    def probe(image, key, region):
+        return _probe_template(image, {
+            "templateKey": key, "region": region,
+            "threshold": 0.80, "templateReferenceWidth": 1920,
+        })
+
+    title = "interlude/text_skill_power_up"
+    prompt = "interlude/skill_power_up_continue_prompt"
+    assert not probe(frame, "enhancement/result_click_prompt", prompt_region)["found"]
+    assert probe(frame, title, title_region)["found"]
+    match = probe(frame, prompt, prompt_region)
+    assert match["found"]
+    assert (match["x"], match["y"]) == pytest.approx((0.50, 0.93), abs=0.01)
+
+    title_only = frame.copy()
+    title_only[round(width * 9 / 16 * 0.80):] = 0
+    assert probe(title_only, title, title_region)["found"]
+    assert not probe(title_only, prompt, prompt_region)["found"]
+
+
 def test_interlude_stage_menu_matches_the_bottom_right_button():
     from mash_cv.cv import _find_element
 
