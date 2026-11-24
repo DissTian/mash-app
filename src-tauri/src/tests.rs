@@ -246,15 +246,22 @@ fn server_cv_inherits_battle_from_shared_config() {
             1,
             "{server} Battle override should only customize elements"
         );
-        assert_eq!(
-            elements.len(),
-            1,
-            "{server} Battle override should only customize battle_action_menu"
-        );
-        assert!(
-            elements.contains_key("battle_action_menu"),
-            "{server} Battle override should only customize battle_action_menu"
-        );
+        let expected_elements: &[&str] = if server == "cn" {
+            &[
+                "battle_action_menu",
+                "skill_energy_insufficient",
+                "skill_use_cancel_button",
+            ]
+        } else {
+            &["battle_action_menu"]
+        };
+        assert_eq!(elements.len(), expected_elements.len());
+        for element in expected_elements {
+            assert!(
+                elements.contains_key(*element),
+                "missing {server} Battle element {element}"
+            );
+        }
     }
 }
 

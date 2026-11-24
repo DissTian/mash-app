@@ -21,9 +21,13 @@ const AUTO_SKILL_REACTION_POLL: Duration = Duration::from_millis(150);
 const AUTO_SKILL_WAIT_TIMEOUT: Duration = Duration::from_secs(20);
 /// Settle time after tapping a skill target.
 const AUTO_TARGET_SETTLE: Duration = Duration::from_millis(300);
+const SKILL_ENERGY_INSUFFICIENT_ELEMENT: &str = "skill_energy_insufficient";
+const SKILL_ENERGY_CLOSE_POINT: Point = Point::new(0.495, 0.780);
+const SKILL_USE_CANCEL_ELEMENT: &str = "skill_use_cancel_button";
 
 #[derive(Debug, Clone, Copy)]
 enum AutoSkillReaction {
+    InsufficientEnergy,
     Confirm,
     AlreadyUsed,
     TargetPicker(Point),
@@ -39,6 +43,8 @@ enum AutoSkillOutcome {
     Used,
     /// Normal skip (cooldown, already used, no visible reaction).
     Skipped,
+    /// The energy warning and skill confirmation were dismissed and the HUD is ready.
+    InsufficientEnergy,
     /// The auto system could not execute the skill (unsupported dialog or an
     /// unresolved target). `failure: stopRun` turns this into a run failure.
     Blocked,
@@ -674,6 +680,9 @@ impl Runner {
                 return Ok(AutoSkillOutcome::Skipped);
             }
             match self.probe_auto_skill_reaction()? {
+                AutoSkillReaction::InsufficientEnergy => {
+                    return self.dismiss_auto_skill_energy_warning(label);
+                }
                 AutoSkillReaction::Confirm => {
                     self.emit_debug("Battle", &format!("{label}：检测到确认弹窗，点击确认"));
                     if !self.tap_at("Battle", SKILL_USE_CONFIRM_POINT) {
@@ -776,7 +785,62 @@ impl Runner {
         }
     }
 
+    fn dismiss_auto_skill_energy_warning(
+        &mut self,
+        label: &str,
+    ) -> AutomationResult<AutoSkillOutcome> {
+        if !self.tap_at("Battle", SKILL_ENERGY_CLOSE_POINT) {
+            return Ok(AutoSkillOutcome::Fatal);
+        }
+        let start = Instant::now();
+        loop {
+            if self.is_cancelled() {
+                return Ok(AutoSkillOutcome::Fatal);
+            }
+            let cancel = self
+                .sidecar()
+                .find_element_by_name(None, BATTLE_SCREEN, SKILL_USE_CANCEL_ELEMENT)
+                .recoverable()?;
+            if let Ok(button) = cancel {
+                if button.found {
+                    if !self.tap_at("Battle", Point::new(button.x, button.y)) {
+                        return Ok(AutoSkillOutcome::Fatal);
+                    }
+                    thread::sleep(ACTION_DELAY);
+                    if self.wait_for_attack_button(BATTLE_SCREEN, AUTO_SKILL_WAIT_TIMEOUT)? {
+                        self.emit("Battle", &format!("{label}：能量不足，本回合跳过"));
+                        return Ok(AutoSkillOutcome::InsufficientEnergy);
+                    }
+                    break;
+                }
+            }
+            if start.elapsed() >= Duration::from_secs(5) {
+                break;
+            }
+            thread::sleep(AUTO_SKILL_REACTION_POLL);
+        }
+        if !self.is_cancelled() {
+            self.fail_action(
+                "Battle",
+                "自动战斗技能",
+                format!("{label} 能量不足，关闭并取消后未能回到战斗界面"),
+            );
+        }
+        Ok(AutoSkillOutcome::Fatal)
+    }
+
     fn probe_auto_skill_reaction(&mut self) -> AutomationResult<AutoSkillReaction> {
+        // This warning shares the normal skill dialog title. Detect it first
+        // so the confirmation luma probe cannot mistake it for that dialog.
+        if self.server == Server::Cn
+            && self
+                .sidecar()
+                .find_element_by_name(None, BATTLE_SCREEN, SKILL_ENERGY_INSUFFICIENT_ELEMENT)
+                .recoverable()?
+                .is_ok_and(|matched| matched.found)
+        {
+            return Ok(AutoSkillReaction::InsufficientEnergy);
+        }
         match self.probe_skill_use_dialog().recoverable()? {
             Ok((probe, _image_path)) => {
                 if let Some(state) = classify_skill_use_dialog_probe(&probe) {

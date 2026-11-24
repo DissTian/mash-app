@@ -1807,6 +1807,28 @@ def test_order_change_selection_probe_matches_current_jp_capture(width):
 
 
 class TestProbeSkillUseDialog:
+    @pytest.mark.parametrize("width", [960, 1920, 2560])
+    @pytest.mark.parametrize("state", ["insufficient_energy", "confirm", "already_used"])
+    def test_cn_skill_energy_warning_and_cancel_are_distinct(self, width, state):
+        repo_root = Path(__file__).resolve().parents[3]
+        server_dir = repo_root / "src-tauri" / "resources" / "servers" / "cn"
+        assert mash_cv._load_templates(str(server_dir / "templates"))["ok"] is True
+        mash_cv._set_config(json.loads((server_dir / "cv.json").read_text(encoding="utf-8")))
+        fixture = Path(__file__).resolve().parent / "test_data" / "screenshots"
+        img = cv2.imread(str(fixture / f"battle_skill_use_dialog_cn_{state}.png"))
+        assert img is not None
+        if img.shape[1] != width:
+            img = cv2.resize(img, (width, width * 9 // 16), interpolation=cv2.INTER_AREA)
+
+        warning = mash_cv._find_element_by_name(img, "Battle", "skill_energy_insufficient")
+        cancel = mash_cv._find_element_by_name(img, "Battle", "skill_use_cancel_button")
+        has_warning = state == "insufficient_energy"
+        assert warning["found"] is has_warning, warning
+        assert cancel["found"] is not has_warning, cancel
+        if cancel["found"]:
+            assert cancel["x"] == pytest.approx(0.332, abs=0.01)
+            assert cancel["y"] == pytest.approx(0.593, abs=0.01)
+
     def test_missing_template_key_returns_error(self):
         img = _make_bgr_image(100, 100)
         with pytest.raises(TemplateLoadError, match="missing"):

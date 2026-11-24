@@ -43,6 +43,18 @@
       "variants": {
         "main": {
           "elements": {
+            "skill_energy_insufficient": {
+              "template": "battle/text_skill_energy_insufficient",
+              "region": { "x": 0.28, "y": 0.38, "w": 0.44, "h": 0.13 },
+              "threshold": 0.8,
+              "templateReferenceWidth": 1920
+            },
+            "skill_use_cancel_button": {
+              "template": "battle/button_skill_use_cancel",
+              "region": { "x": 0.26, "y": 0.53, "w": 0.14, "h": 0.13 },
+              "threshold": 0.8,
+              "templateReferenceWidth": 2560
+            },
             "battle_action_menu": {
               "template": "battle/battle_action_menu",
               "region": {
