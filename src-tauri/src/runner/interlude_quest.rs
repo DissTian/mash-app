@@ -41,17 +41,28 @@ const RETURN_LIST_TAP_INTERVAL: Duration = Duration::from_secs(2);
 const RETURN_LIST_TAP: Point = Point::new(0.50, 0.80);
 const MAX_RESULT_POPUP_TAPS: u8 = 3;
 const MENU_BUTTON_REGION: NormRect = NormRect { x: 0.85, y: 0.80, w: 0.15, h: 0.20 };
-const SKILL_POWER_UP_TITLE_REGION: NormRect = NormRect {
-    x: 0.58,
-    y: 0.16,
-    w: 0.30,
-    h: 0.20,
-};
 const STAGE_CONTINUE_PROMPT_REGION: NormRect = NormRect {
     x: 0.28,
     y: 0.80,
     w: 0.44,
     h: 0.20,
+};
+/// Wider OCR band for the same prompt: the new-CE reward card draws
+/// 「请点击游戏界面」 on a dark overlay instead of the enhancement result
+/// background, so the template probe can miss it.
+const STAGE_CONTINUE_PROMPT_OCR_REGION: NormRect = NormRect {
+    x: 0.18,
+    y: 0.82,
+    w: 0.64,
+    h: 0.18,
+};
+/// The new-CE detail page opened by that prompt keeps its close button in
+/// the top-left corner, unlike the reward popups whose buttons sit lower.
+const STAGE_DETAIL_CLOSE_REGION: NormRect = NormRect {
+    x: 0.00,
+    y: 0.00,
+    w: 0.30,
+    h: 0.18,
 };
 const OPEN_MENU_REGION: NormRect = NormRect { x: 0.0, y: 0.65, w: 1.0, h: 0.35 };
 const DIALOGUE_SKIP_REGION: NormRect = NormRect {
@@ -181,6 +192,9 @@ pub(crate) struct InterludeQuestRuntime {
     retreat_pending: bool,
     navigation_done: bool,
     stage_wait_polls: u32,
+    /// Set when the stage continue prompt was tapped, so the new-CE detail
+    /// page it opens is closed instead of being waited out.
+    stage_prompt_tapped: bool,
     last_stage_menu_tap: Option<Instant>,
     saw_battle_result: bool,
     single_failed: bool,
@@ -230,6 +244,7 @@ impl InterludeQuestRuntime {
             retreat_pending: false,
             navigation_done: false,
             stage_wait_polls: 0,
+            stage_prompt_tapped: false,
             last_stage_menu_tap: None,
             saw_battle_result: false,
             single_failed: false,
@@ -281,6 +296,15 @@ impl InterludeQuestRuntime {
                 < self.config.task.stage_recovery_retry_limit.max(1)
     }
 
+    /// Only close a post-prompt detail page after this runtime tapped the
+    /// prompt itself, and still within the shared stage-wait budget.
+    fn can_close_stage_detail(&self) -> bool {
+        self.stage_prompt_tapped
+            && self.stage_waiting(Screen::Unknown)
+            && self.stage_wait_polls.saturating_add(1)
+                < self.config.task.stage_recovery_retry_limit.max(1)
+    }
+
     fn return_list_tap_due(&self, now: Instant) -> bool {
         self.phase == InterludeQuestPhase::AwaitingReturn
             && self.last_return_list_tap.is_none_or(|last| {
@@ -302,6 +326,7 @@ impl InterludeQuestRuntime {
     fn enter_selected_row(&mut self, row: &InterludeQuestRow, kind: InterludeListKind) {
         self.note_clicked(row);
         self.stage_wait_polls = 0;
+        self.stage_prompt_tapped = false;
         self.saw_battle_result = false;
         (self.phase, self.current_list) = if row.kind == "quickLink" {
             (InterludeQuestPhase::AwaitingStage, InterludeListKind::Stage)
@@ -456,6 +481,55 @@ fn interlude_reward_close_point(fragments: &[crate::screen::OcrFragment]) -> Opt
     ))
 }
 
+fn interlude_stage_continue_prompt_point(
+    fragments: &[crate::screen::OcrFragment],
+) -> Option<Point> {
+    let compact = |text: &str| text.split_whitespace().collect::<String>();
+    let joined = fragments
+        .iter()
+        .map(|fragment| compact(&fragment.text))
+        .collect::<String>();
+    if !joined.contains("请点击游戏界面") {
+        return None;
+    }
+    fragments
+        .iter()
+        .find(|fragment| compact(&fragment.text).contains("游戏界面"))
+        .map(|fragment| {
+            Point::new(
+                fragment.region.x + fragment.region.w / 2.0,
+                fragment.region.y + fragment.region.h / 2.0,
+            )
+        })
+        .or(Some(Point::new(0.50, 0.94)))
+}
+
+fn interlude_stage_detail_close_point(
+    fragments: &[crate::screen::OcrFragment],
+) -> Option<Point> {
+    let compact = |text: &str| text.split_whitespace().collect::<String>();
+    fragments
+        .iter()
+        .filter(|fragment| {
+            let text = compact(&fragment.text);
+            (text.contains("关闭") || text.eq_ignore_ascii_case("CLOSE"))
+                && fragment.region.x + fragment.region.w <= 0.32
+                && fragment.region.y + fragment.region.h <= 0.20
+        })
+        .min_by(|left, right| {
+            left.region
+                .y
+                .total_cmp(&right.region.y)
+                .then(left.region.x.total_cmp(&right.region.x))
+        })
+        .map(|fragment| {
+            Point::new(
+                fragment.region.x + fragment.region.w / 2.0,
+                fragment.region.y + fragment.region.h / 2.0,
+            )
+        })
+}
+
 fn interlude_title_signature_matches(left: &str, right: &str) -> bool {
     if left == right {
         return true;
@@ -586,6 +660,7 @@ impl Runner {
             }
             let previous = runtime.phase;
             runtime.stage_wait_polls = 0;
+            runtime.stage_prompt_tapped = false;
             runtime.observe_battle_started(screen);
             match runtime.phase {
                 InterludeQuestPhase::NavigateMain => {
@@ -750,53 +825,79 @@ impl Runner {
         {
             return Ok(false);
         }
-        let prompt = self
-            .sidecar()
-            .probe_template(
-                None,
-                "enhancement/result_click_prompt",
-                STAGE_CONTINUE_PROMPT_REGION,
-                0.80,
-                1920,
-            )
-            .recoverable()?
-            .ok()
-            .filter(|result| result.found);
-        let prompt = if prompt.is_none()
-            && self
-                .sidecar()
-                .probe_template(
-                    None,
-                    "interlude/text_skill_power_up",
-                    SKILL_POWER_UP_TITLE_REGION,
-                    0.80,
-                    1920,
-                )
-                .recoverable()?
-                .is_ok_and(|title| title.found)
-        {
-            self.sidecar()
-                .probe_template(
-                    None,
-                    "interlude/skill_power_up_continue_prompt",
-                    STAGE_CONTINUE_PROMPT_REGION,
-                    0.80,
-                    1920,
-                )
-                .recoverable()?
-                .ok()
-                .filter(|result| result.found)
-        } else {
-            prompt
-        };
-        let Some(prompt) = prompt else {
+        let Some(point) = self.probe_interlude_stage_continue_prompt()? else {
             return Ok(false);
         };
         if let Some(runtime) = self.interlude_quest.as_mut() {
+            runtime.stage_prompt_tapped = true;
             runtime.advance_stage_wait();
         }
-        self.emit("InterludeQuest", "检测到「请点击游戏界面」，点击关闭提示");
-        if self.tap_at("InterludeQuest", Point::new(prompt.x, prompt.y)) {
+        self.emit("InterludeQuest", "检测到「请点击游戏界面」，点击提示继续");
+        if self.tap_at("InterludeQuest", point) {
+            thread::sleep(ACTION_DELAY);
+        }
+        Ok(true)
+    }
+
+    /// Probe the bottom「请点击游戏界面」prompt.
+    ///
+    /// The enhancement result page and the「技能获得强化」page each have their
+    /// own template, while the new-CE reward card renders the same sentence on
+    /// a dark overlay that can fall below the template threshold. OCR is the
+    /// final fallback so the card variant cannot stall the stage wait.
+    fn probe_interlude_stage_continue_prompt(&mut self) -> AutomationResult<Option<Point>> {
+        for template in [
+            "enhancement/result_click_prompt",
+            "interlude/skill_power_up_continue_prompt",
+        ] {
+            let point = self
+                .sidecar()
+                .probe_template(None, template, STAGE_CONTINUE_PROMPT_REGION, 0.80, 1920)
+                .recoverable()?
+                .ok()
+                .filter(|result| result.found)
+                .map(|result| Point::new(result.x, result.y));
+            if point.is_some() {
+                return Ok(point);
+            }
+        }
+        let Ok(ocr) = self
+            .sidecar()
+            .ocr_region(None, STAGE_CONTINUE_PROMPT_OCR_REGION)
+            .recoverable()?
+        else {
+            return Ok(None);
+        };
+        Ok(interlude_stage_continue_prompt_point(&ocr.fragments))
+    }
+
+    /// Close the new-CE detail page opened by the prompt tap. That page is not
+    /// one of the recognized screens, and its close button stays top-left
+    /// instead of the lower position used by task-reward popups.
+    pub(crate) fn try_interlude_stage_detail_close(&mut self) -> AutomationResult<bool> {
+        if self.interlude_stage_recovery_active()
+            || !self.interlude_quest.as_ref().is_some_and(
+                InterludeQuestRuntime::can_close_stage_detail,
+            )
+        {
+            return Ok(false);
+        }
+        let Ok(ocr) = self
+            .sidecar()
+            .ocr_region(None, STAGE_DETAIL_CLOSE_REGION)
+            .recoverable()?
+        else {
+            return Ok(false);
+        };
+        let Some(point) = interlude_stage_detail_close_point(&ocr.fragments) else {
+            return Ok(false);
+        };
+        if let Some(runtime) = self.interlude_quest.as_mut() {
+            runtime.stage_prompt_tapped = false;
+            runtime.advance_stage_wait();
+        }
+        self.emit("InterludeQuest", "检测到礼装详情，点击左上角关闭");
+        if self.tap_at("InterludeQuest", point) {
             thread::sleep(ACTION_DELAY);
         }
         Ok(true)
@@ -2281,6 +2382,50 @@ mod tests {
         assert!(runtime.can_dismiss_stage_continue_prompt());
         assert!(!runtime.advance_stage_wait());
         assert!(!runtime.can_dismiss_stage_continue_prompt());
+        assert!(runtime.advance_stage_wait());
+    }
+
+    #[test]
+    fn stage_continue_prompt_accepts_the_ce_reward_card_text() {
+        assert!(interlude_stage_continue_prompt_point(&[]).is_none());
+        assert!(interlude_stage_continue_prompt_point(&[
+            ocr_fragment("任务完成", 0.40, 0.23),
+            ocr_fragment("关闭", 0.45, 0.80),
+        ])
+        .is_none());
+        let point = interlude_stage_continue_prompt_point(&[
+            ocr_fragment("请 点 击 游 戏 界 面", 0.40, 0.92),
+        ])
+        .unwrap();
+        assert!((point.x - 0.45).abs() < 1e-6);
+        assert!((point.y - 0.94).abs() < 1e-6);
+    }
+
+    #[test]
+    fn stage_detail_close_requires_a_tapped_prompt_and_a_top_left_label() {
+        let mut runtime = InterludeQuestRuntime::new(workflow());
+        runtime.config.task.stage_recovery_retry_limit = 3;
+        runtime.current_list = InterludeListKind::Stage;
+        runtime.phase = InterludeQuestPhase::AwaitingReturn;
+        runtime.observe_battle_started(Screen::BattleResultLoot);
+        assert!(!runtime.can_close_stage_detail());
+        runtime.stage_prompt_tapped = true;
+        assert!(runtime.can_close_stage_detail());
+
+        // A dialog-style close button lower on the page is not the detail page.
+        assert!(interlude_stage_detail_close_point(&[ocr_fragment("关闭", 0.46, 0.80)]).is_none());
+        let point = interlude_stage_detail_close_point(&[
+            ocr_fragment("菜单", 0.90, 0.90),
+            ocr_fragment("关 闭", 0.03, 0.04),
+        ])
+        .unwrap();
+        assert!((point.x - 0.08).abs() < 1e-6);
+        assert!((point.y - 0.06).abs() < 1e-6);
+
+        assert!(!runtime.advance_stage_wait());
+        assert!(runtime.can_close_stage_detail());
+        assert!(!runtime.advance_stage_wait());
+        assert!(!runtime.can_close_stage_detail());
         assert!(runtime.advance_stage_wait());
     }
 

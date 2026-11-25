@@ -93,7 +93,10 @@ impl Runner {
             }
 
             if screen == Screen::Unknown {
-                if self.try_interlude_stage_continue_prompt()? || self.try_interlude_stage_menu(screen)? {
+                if self.try_interlude_stage_continue_prompt()?
+                    || self.try_interlude_stage_detail_close()?
+                    || self.try_interlude_stage_menu(screen)?
+                {
                     if matches!(*self.state.lock().unwrap(), RunnerState::Error { .. }) {
                         return Ok(());
                     }
