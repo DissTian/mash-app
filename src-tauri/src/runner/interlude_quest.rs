@@ -40,6 +40,17 @@ const STAGE_MENU_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 const RETURN_LIST_TAP_INTERVAL: Duration = Duration::from_secs(2);
 const RETURN_LIST_TAP: Point = Point::new(0.50, 0.80);
 const MAX_RESULT_POPUP_TAPS: u8 = 3;
+/// A quest can end on a tap-to-continue reward page that is not one of the
+/// recognized screens. Outside stage recovery the stage-wait budget does not
+/// run, so cap those overlay taps separately.
+const MAX_QUEST_OVERLAY_TAPS: u8 = 8;
+/// The interlude list keeps the same top-left「关闭」button as the CE detail
+/// page. Require the detail candidate on consecutive frames before closing,
+/// so a transition frame onto the list cannot be mistaken for the detail.
+const PROMPT_DETAIL_SETTLE_POLLS: u8 = 3;
+/// Stop probing the prompt-opened detail page after this many frames; the
+/// generic unknown-screen timeout then owns the failure.
+const MAX_PROMPT_DETAIL_PROBES: u8 = 10;
 const MENU_BUTTON_REGION: NormRect = NormRect { x: 0.85, y: 0.80, w: 0.15, h: 0.20 };
 const STAGE_CONTINUE_PROMPT_REGION: NormRect = NormRect {
     x: 0.28,
@@ -63,6 +74,12 @@ const STAGE_DETAIL_CLOSE_REGION: NormRect = NormRect {
     y: 0.00,
     w: 0.30,
     h: 0.18,
+};
+const FULL_FRAME_REGION: NormRect = NormRect {
+    x: 0.0,
+    y: 0.0,
+    w: 1.0,
+    h: 1.0,
 };
 const OPEN_MENU_REGION: NormRect = NormRect { x: 0.0, y: 0.65, w: 1.0, h: 0.35 };
 const DIALOGUE_SKIP_REGION: NormRect = NormRect {
@@ -192,9 +209,17 @@ pub(crate) struct InterludeQuestRuntime {
     retreat_pending: bool,
     navigation_done: bool,
     stage_wait_polls: u32,
-    /// Set when the stage continue prompt was tapped, so the new-CE detail
+    /// Set when the bottom「请点击游戏界面」prompt was tapped, so a detail
     /// page it opens is closed instead of being waited out.
-    stage_prompt_tapped: bool,
+    continue_prompt_tapped: bool,
+    /// Tap budget for tap-to-continue quest reward pages outside stage
+    /// recovery. Reset whenever a recognized screen is observed.
+    quest_overlay_taps: u8,
+    /// Consecutive frames that looked like the prompt-opened detail page.
+    prompt_detail_polls: u8,
+    /// Frames probed for the prompt-opened detail page since the last
+    /// prompt tap, so a stalled overlay cannot keep the probe running.
+    prompt_detail_probes: u8,
     last_stage_menu_tap: Option<Instant>,
     saw_battle_result: bool,
     single_failed: bool,
@@ -244,7 +269,10 @@ impl InterludeQuestRuntime {
             retreat_pending: false,
             navigation_done: false,
             stage_wait_polls: 0,
-            stage_prompt_tapped: false,
+            continue_prompt_tapped: false,
+            quest_overlay_taps: 0,
+            prompt_detail_polls: 0,
+            prompt_detail_probes: 0,
             last_stage_menu_tap: None,
             saw_battle_result: false,
             single_failed: false,
@@ -296,13 +324,41 @@ impl InterludeQuestRuntime {
                 < self.config.task.stage_recovery_retry_limit.max(1)
     }
 
-    /// Only close a post-prompt detail page after this runtime tapped the
-    /// prompt itself, and still within the shared stage-wait budget.
-    fn can_close_stage_detail(&self) -> bool {
-        self.stage_prompt_tapped
-            && self.stage_waiting(Screen::Unknown)
-            && self.stage_wait_polls.saturating_add(1)
-                < self.config.task.stage_recovery_retry_limit.max(1)
+    /// Phases where a quest is still running or returning, so a
+    /// tap-to-continue reward page belongs to this run rather than to an
+    /// unrelated popup.
+    fn quest_overlay_waiting(&self) -> bool {
+        matches!(
+            self.phase,
+            InterludeQuestPhase::InQuest
+                | InterludeQuestPhase::AwaitingStage
+                | InterludeQuestPhase::AwaitingStageReturn
+                | InterludeQuestPhase::AwaitingConfirm
+                | InterludeQuestPhase::AwaitingDeparture
+                | InterludeQuestPhase::AwaitingReturn
+        )
+    }
+
+    /// No-battle quests end on a「任务完成/获得报酬」page with the same bottom
+    /// prompt but without a battle result, so stage recovery never starts.
+    fn can_dismiss_quest_continue_prompt(&self) -> bool {
+        !self.can_recover_stage()
+            && self.quest_overlay_waiting()
+            && self.quest_overlay_taps < MAX_QUEST_OVERLAY_TAPS
+    }
+
+    /// Only probe a post-prompt detail page after this runtime tapped the
+    /// prompt itself, and while the active wait budget still allows a tap.
+    fn can_probe_prompt_detail(&self) -> bool {
+        if !self.continue_prompt_tapped {
+            return false;
+        }
+        if self.can_recover_stage() {
+            return self.stage_waiting(Screen::Unknown)
+                && self.stage_wait_polls.saturating_add(1)
+                    < self.config.task.stage_recovery_retry_limit.max(1);
+        }
+        self.quest_overlay_waiting() && self.quest_overlay_taps < MAX_QUEST_OVERLAY_TAPS
     }
 
     fn return_list_tap_due(&self, now: Instant) -> bool {
@@ -326,7 +382,10 @@ impl InterludeQuestRuntime {
     fn enter_selected_row(&mut self, row: &InterludeQuestRow, kind: InterludeListKind) {
         self.note_clicked(row);
         self.stage_wait_polls = 0;
-        self.stage_prompt_tapped = false;
+        self.continue_prompt_tapped = false;
+        self.quest_overlay_taps = 0;
+        self.prompt_detail_polls = 0;
+        self.prompt_detail_probes = 0;
         self.saw_battle_result = false;
         (self.phase, self.current_list) = if row.kind == "quickLink" {
             (InterludeQuestPhase::AwaitingStage, InterludeListKind::Stage)
@@ -530,8 +589,39 @@ fn interlude_stage_detail_close_point(
         })
 }
 
-fn interlude_title_signature_matches(left: &str, right: &str) -> bool {
-    if left == right {
+/// Anchors that only appear on the interlude / stage quest list. They guard
+/// the detail-page heuristic because both screens share a top-left「关闭」.
+fn interlude_list_anchor_visible(fragments: &[crate::screen::OcrFragment]) -> bool {
+    const ANCHORS: [&str; 4] = ["进行度", "开放条件", "故事的舞台", "自由关卡"];
+    fragments.iter().any(|fragment| {
+        let text = fragment.text.split_whitespace().collect::<String>();
+        ANCHORS.iter().any(|anchor| text.contains(anchor))
+    })
+}
+
+/// When a quest phase suddenly observes the terminal or the Chaldea Gate
+/// menu, the flow backed out of the interlude list. Return the navigation
+/// phase that should re-enter it; `None` means nothing was lost.
+fn interlude_lost_navigation_target(
+    phase: InterludeQuestPhase,
+    screen: Screen,
+) -> Option<InterludeQuestPhase> {
+    if matches!(
+        phase,
+        InterludeQuestPhase::NavigateMain
+            | InterludeQuestPhase::NavigateGate
+            | InterludeQuestPhase::Finished
+    ) {
+        return None;
+    }
+    match screen {
+        Screen::ChaldeaGate => Some(InterludeQuestPhase::NavigateGate),
+        Screen::Main => Some(InterludeQuestPhase::NavigateMain),
+        _ => None,
+    }
+}
+
+fn interlude_title_signature_matches(left: &str, right: &str) -> bool {    if left == right {
         return true;
     }
     match (
@@ -631,9 +721,40 @@ impl Runner {
         self.transition_lifecycle(RunnerLifecycleEvent::Finished);
     }
 
+    /// Recover when a quest phase suddenly observes the terminal or the
+    /// Chaldea Gate menu, which means the flow backed out of the interlude
+    /// list. Rebuild the navigation state instead of polling forever.
+    fn reenter_interlude_list_if_lost(&mut self, screen: Screen) -> Option<&'static str> {
+        let runtime = self.interlude_quest.as_mut()?;
+        let target = interlude_lost_navigation_target(runtime.phase, screen)?;
+        runtime.navigation = InterludeNavigation::default();
+        runtime.stage_wait_polls = 0;
+        runtime.continue_prompt_tapped = false;
+        runtime.quest_overlay_taps = 0;
+        runtime.prompt_detail_polls = 0;
+        runtime.prompt_detail_probes = 0;
+        match target {
+            InterludeQuestPhase::NavigateMain => {
+                runtime.phase = InterludeQuestPhase::NavigateMain;
+                runtime.main_top_clicked = false;
+                runtime.main_swipes = 0;
+                Some("已回到主界面，重新进入幕间物语列表")
+            }
+            _ => {
+                runtime.phase = InterludeQuestPhase::NavigateGate;
+                runtime.gate_top_clicked = false;
+                runtime.gate_swipes = 0;
+                Some("已回到迦勒底之门，重新进入幕间物语列表")
+            }
+        }
+    }
+
     /// Observe the current screen while the interlude workflow owns the loop.
     /// Returns `false` if the run should stop.
     pub(crate) fn observe_interlude_quest_screen(&mut self, screen: Screen) -> bool {
+        if let Some(message) = self.reenter_interlude_list_if_lost(screen) {
+            self.emit("InterludeQuest", message);
+        }
         let (observation, phase) = {
             let Some(runtime) = self.interlude_quest.as_mut() else {
                 return true;
@@ -660,7 +781,10 @@ impl Runner {
             }
             let previous = runtime.phase;
             runtime.stage_wait_polls = 0;
-            runtime.stage_prompt_tapped = false;
+            runtime.continue_prompt_tapped = false;
+            runtime.quest_overlay_taps = 0;
+            runtime.prompt_detail_polls = 0;
+            runtime.prompt_detail_probes = 0;
             runtime.observe_battle_started(screen);
             match runtime.phase {
                 InterludeQuestPhase::NavigateMain => {
@@ -817,20 +941,31 @@ impl Runner {
         ))
     }
 
-    pub(crate) fn try_interlude_stage_continue_prompt(&mut self) -> AutomationResult<bool> {
+    /// Tap the bottom「请点击游戏界面」prompt of whichever tap-to-continue
+    /// reward page is showing: stage recovery after a battle, or the
+    ///「任务完成/获得报酬」page of a no-battle quest.
+    pub(crate) fn try_interlude_continue_prompt(&mut self) -> AutomationResult<bool> {
         if self.interlude_stage_recovery_active()
-            || !self.interlude_quest.as_ref().is_some_and(
-                InterludeQuestRuntime::can_dismiss_stage_continue_prompt,
-            )
+            || !self.interlude_quest.as_ref().is_some_and(|runtime| {
+                runtime.can_dismiss_stage_continue_prompt()
+                    || runtime.can_dismiss_quest_continue_prompt()
+            })
         {
             return Ok(false);
         }
-        let Some(point) = self.probe_interlude_stage_continue_prompt()? else {
+        let Some(point) = self.probe_interlude_continue_prompt()? else {
             return Ok(false);
         };
         if let Some(runtime) = self.interlude_quest.as_mut() {
-            runtime.stage_prompt_tapped = true;
-            runtime.advance_stage_wait();
+            let stage_recovery = runtime.can_recover_stage();
+            runtime.continue_prompt_tapped = true;
+            runtime.prompt_detail_polls = 0;
+            runtime.prompt_detail_probes = 0;
+            if stage_recovery {
+                runtime.advance_stage_wait();
+            } else {
+                runtime.quest_overlay_taps = runtime.quest_overlay_taps.saturating_add(1);
+            }
         }
         self.emit("InterludeQuest", "检测到「请点击游戏界面」，点击提示继续");
         if self.tap_at("InterludeQuest", point) {
@@ -842,10 +977,10 @@ impl Runner {
     /// Probe the bottom「请点击游戏界面」prompt.
     ///
     /// The enhancement result page and the「技能获得强化」page each have their
-    /// own template, while the new-CE reward card renders the same sentence on
-    /// a dark overlay that can fall below the template threshold. OCR is the
-    /// final fallback so the card variant cannot stall the stage wait.
-    fn probe_interlude_stage_continue_prompt(&mut self) -> AutomationResult<Option<Point>> {
+    /// own template, while the new-CE reward card and the no-battle quest
+    /// reward page render the same sentence on a dark overlay that can fall
+    /// below the template threshold. OCR is the final fallback.
+    fn probe_interlude_continue_prompt(&mut self) -> AutomationResult<Option<Point>> {
         for template in [
             "enhancement/result_click_prompt",
             "interlude/skill_power_up_continue_prompt",
@@ -874,33 +1009,69 @@ impl Runner {
     /// Close the new-CE detail page opened by the prompt tap. That page is not
     /// one of the recognized screens, and its close button stays top-left
     /// instead of the lower position used by task-reward popups.
-    pub(crate) fn try_interlude_stage_detail_close(&mut self) -> AutomationResult<bool> {
+    pub(crate) fn try_interlude_prompt_detail_close(&mut self) -> AutomationResult<bool> {
         if self.interlude_stage_recovery_active()
             || !self.interlude_quest.as_ref().is_some_and(
-                InterludeQuestRuntime::can_close_stage_detail,
+                InterludeQuestRuntime::can_probe_prompt_detail,
             )
         {
             return Ok(false);
         }
+        let exhausted = self.interlude_quest.as_mut().is_some_and(|runtime| {
+            runtime.prompt_detail_probes = runtime.prompt_detail_probes.saturating_add(1);
+            runtime.prompt_detail_probes > MAX_PROMPT_DETAIL_PROBES
+        });
+        if exhausted {
+            if let Some(runtime) = self.interlude_quest.as_mut() {
+                runtime.continue_prompt_tapped = false;
+            }
+            return Ok(false);
+        }
         let Ok(ocr) = self
             .sidecar()
-            .ocr_region(None, STAGE_DETAIL_CLOSE_REGION)
+            .ocr_region(None, FULL_FRAME_REGION)
             .recoverable()?
         else {
             return Ok(false);
         };
+        // The interlude and stage lists share the same top-left「关闭」button,
+        // so list anchors always win over the detail-page heuristic.
+        if interlude_list_anchor_visible(&ocr.fragments) {
+            self.reset_prompt_detail_settle();
+            return Ok(false);
+        }
         let Some(point) = interlude_stage_detail_close_point(&ocr.fragments) else {
+            self.reset_prompt_detail_settle();
             return Ok(false);
         };
+        let settled = self.interlude_quest.as_mut().is_some_and(|runtime| {
+            runtime.prompt_detail_polls = runtime.prompt_detail_polls.saturating_add(1);
+            runtime.prompt_detail_polls >= PROMPT_DETAIL_SETTLE_POLLS
+        });
+        if !settled {
+            return Ok(false);
+        }
         if let Some(runtime) = self.interlude_quest.as_mut() {
-            runtime.stage_prompt_tapped = false;
-            runtime.advance_stage_wait();
+            let stage_recovery = runtime.can_recover_stage();
+            runtime.continue_prompt_tapped = false;
+            runtime.prompt_detail_polls = 0;
+            if stage_recovery {
+                runtime.advance_stage_wait();
+            } else {
+                runtime.quest_overlay_taps = runtime.quest_overlay_taps.saturating_add(1);
+            }
         }
         self.emit("InterludeQuest", "检测到礼装详情，点击左上角关闭");
         if self.tap_at("InterludeQuest", point) {
             thread::sleep(ACTION_DELAY);
         }
         Ok(true)
+    }
+
+    fn reset_prompt_detail_settle(&mut self) {
+        if let Some(runtime) = self.interlude_quest.as_mut() {
+            runtime.prompt_detail_polls = 0;
+        }
     }
 
     pub(crate) fn try_interlude_stage_menu(&mut self, screen: Screen) -> AutomationResult<bool> {
@@ -2408,9 +2579,9 @@ mod tests {
         runtime.current_list = InterludeListKind::Stage;
         runtime.phase = InterludeQuestPhase::AwaitingReturn;
         runtime.observe_battle_started(Screen::BattleResultLoot);
-        assert!(!runtime.can_close_stage_detail());
-        runtime.stage_prompt_tapped = true;
-        assert!(runtime.can_close_stage_detail());
+        assert!(!runtime.can_probe_prompt_detail());
+        runtime.continue_prompt_tapped = true;
+        assert!(runtime.can_probe_prompt_detail());
 
         // A dialog-style close button lower on the page is not the detail page.
         assert!(interlude_stage_detail_close_point(&[ocr_fragment("关闭", 0.46, 0.80)]).is_none());
@@ -2423,10 +2594,97 @@ mod tests {
         assert!((point.y - 0.06).abs() < 1e-6);
 
         assert!(!runtime.advance_stage_wait());
-        assert!(runtime.can_close_stage_detail());
+        assert!(runtime.can_probe_prompt_detail());
         assert!(!runtime.advance_stage_wait());
-        assert!(!runtime.can_close_stage_detail());
+        assert!(!runtime.can_probe_prompt_detail());
         assert!(runtime.advance_stage_wait());
+    }
+
+    #[test]
+    fn interlude_list_anchors_are_not_mistaken_for_the_prompt_detail() {
+        assert!(!interlude_list_anchor_visible(&[]));
+        assert!(interlude_list_anchor_visible(&[ocr_fragment(
+            "任务进行度",
+            0.60,
+            0.45
+        )]));
+        assert!(interlude_list_anchor_visible(&[ocr_fragment(
+            "开放条件缓和中",
+            0.70,
+            0.30
+        )]));
+        assert!(interlude_list_anchor_visible(&[ocr_fragment(
+            "前往故事的舞台",
+            0.70,
+            0.32
+        )]));
+        // The CE card/detail page keeps a top-left close button but none of
+        // the list anchors, so it still counts as a detail candidate.
+        assert!(!interlude_list_anchor_visible(&[
+            ocr_fragment("概念礼装", 0.45, 0.85),
+            ocr_fragment("请点击游戏界面", 0.40, 0.92),
+            ocr_fragment("关闭", 0.03, 0.04),
+        ]));
+        assert!(PROMPT_DETAIL_SETTLE_POLLS >= 2);
+    }
+
+    #[test]
+    fn lost_quest_phases_reenter_the_interlude_list() {
+        use InterludeQuestPhase as Phase;
+        for phase in [Phase::NavigateMain, Phase::NavigateGate, Phase::Finished] {
+            assert!(interlude_lost_navigation_target(phase, Screen::ChaldeaGate).is_none());
+            assert!(interlude_lost_navigation_target(phase, Screen::Main).is_none());
+        }
+        assert_eq!(
+            interlude_lost_navigation_target(Phase::AwaitingReturn, Screen::ChaldeaGate),
+            Some(Phase::NavigateGate)
+        );
+        assert_eq!(
+            interlude_lost_navigation_target(Phase::AwaitingConfirm, Screen::Main),
+            Some(Phase::NavigateMain)
+        );
+        assert_eq!(
+            interlude_lost_navigation_target(Phase::InQuest, Screen::InterludeQuest),
+            None
+        );
+    }
+
+    #[test]
+    fn no_battle_reward_page_taps_are_bounded_outside_stage_recovery() {
+        let mut runtime = InterludeQuestRuntime::new(workflow());
+        runtime.phase = InterludeQuestPhase::AwaitingConfirm;
+        runtime.current_list = InterludeListKind::Root;
+        assert!(!runtime.can_recover_stage());
+        assert!(runtime.can_dismiss_quest_continue_prompt());
+        assert!(!runtime.can_dismiss_stage_continue_prompt());
+
+        runtime.quest_overlay_taps = MAX_QUEST_OVERLAY_TAPS;
+        assert!(!runtime.can_dismiss_quest_continue_prompt());
+
+        // The budget resets between quests and never fires during list
+        // navigation or stage recovery.
+        runtime.quest_overlay_taps = 0;
+        runtime.continue_prompt_tapped = true;
+        assert!(runtime.can_probe_prompt_detail());
+        runtime.quest_overlay_taps = MAX_QUEST_OVERLAY_TAPS;
+        assert!(!runtime.can_probe_prompt_detail());
+
+        for phase in [
+            InterludeQuestPhase::NavigateMain,
+            InterludeQuestPhase::NavigateGate,
+            InterludeQuestPhase::NeedRootList,
+            InterludeQuestPhase::NeedStageList,
+            InterludeQuestPhase::Finished,
+        ] {
+            runtime.phase = phase;
+            assert!(!runtime.can_dismiss_quest_continue_prompt());
+        }
+
+        let mut stage = InterludeQuestRuntime::new(workflow());
+        stage.current_list = InterludeListKind::Stage;
+        stage.phase = InterludeQuestPhase::InQuest;
+        stage.observe_battle_started(Screen::BattleResultLoot);
+        assert!(!stage.can_dismiss_quest_continue_prompt());
     }
 
     #[test]
